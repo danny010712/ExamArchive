@@ -175,18 +175,25 @@
 
 <script>
 /* ============================================================
-   여기에 보유한 파일 목록을 적어둡니다.
-   새 파일을 추가할 때는:
-   1) /files 폴더에 실제 PDF 두 개(문제, 해설)를 올리고
-   2) 아래 DATA 배열에 한 줄을 복사해서 grade/year/month/파일명만 바꿔 추가하세요.
-   파일명 규칙: files/학년_연도_월_문제.pdf / files/학년_연도_월_해설.pdf
+   폴더 구조: files / 학년 / 연도 / 월_문제.pdf, 월_해설.pdf
+   예) files/고1/2024/03_문제.pdf
+       files/고1/2024/03_해설.pdf
+
+   새 회차를 추가할 때는:
+   1) files/학년/연도/ 폴더 안에 "월_문제.pdf", "월_해설.pdf" 두 개를 올리고
+      (그 폴더가 없으면 업로드하면서 새로 생성됨)
+   2) 아래 DATA 배열에 한 줄만 추가하면 끝 — 파일 경로는 자동 계산됩니다.
    (월은 두 자리, 예: 03, 06, 09, 11)
    ============================================================ */
 const DATA = [
   // 예시 — 실제 파일을 올린 뒤 아래처럼 한 줄씩 추가하세요.
-  // { grade: "고1", year: 2024, month: "03", problem: "files/고1_2024_03_문제.pdf", solution: "files/고1_2024_03_해설.pdf" },
-  // { grade: "고2", year: 2024, month: "06", problem: "files/고2_2024_06_문제.pdf", solution: "files/고2_2024_06_해설.pdf" },
+  // { grade: "고1", year: 2024, month: "03" },
+  // { grade: "고2", year: 2024, month: "06" },
 ];
+
+function pdfPath(grade, year, month, type){
+  return `files/${grade}/${year}/${month}_${type}.pdf`;
+}
 
 const GRADES = ["고1", "고2", "고3"];
 
@@ -274,8 +281,8 @@ monthSel.addEventListener('change', ()=>{
   if(!entry){ clearResult(); return; }
   result.classList.add('ready');
   resultMsg.textContent = `${g} · ${y}년 ${parseInt(m)}월`;
-  btnP.href = entry.problem; btnP.classList.remove('disabled');
-  btnS.href = entry.solution; btnS.classList.remove('disabled');
+  btnP.href = pdfPath(g, y, m, '문제'); btnP.classList.remove('disabled');
+  btnS.href = pdfPath(g, y, m, '해설'); btnS.classList.remove('disabled');
 });
 
 init();
