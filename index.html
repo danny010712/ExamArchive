@@ -173,14 +173,14 @@
 
 <script>
 /* ============================================================
-   폴더 구조: files / 학년 / 연도 / 월_문제.pdf, 월_해설.pdf
+   폴더 구조: files / 학년 / 연도 / 월_문제.pdf, 월_풀이.pdf
    예) files/고1/2024/03_문제.pdf
-       files/고1/2024/03_해설.pdf
+       files/고1/2024/03_풀이.pdf
 
    수능은 월 대신 "수능"이라는 값을 쓰고, 홀수형/짝수형을 따로 둡니다.
    예) files/고3/2024/수능_홀수_문제.pdf
        files/고3/2024/수능_짝수_문제.pdf
-       files/고3/2024/수능_해설.pdf
+       files/고3/2024/수능_풀이.pdf
    DATA에는 { grade: "고3", year: 2024, month: "수능" } 한 줄만 추가하면
    화면에 "홀수형 문제 / 짝수형 문제 / 해설" 버튼 3개가 자동으로 나타납니다.
 
@@ -371,13 +371,13 @@ monthSel.addEventListener('change', ()=>{
     renderButtons([
       { label: '홀수형 문제', href: pdfPath(g, y, m, '홀수_문제'), primary: true },
       { label: '짝수형 문제', href: pdfPath(g, y, m, '짝수_문제'), primary: true },
-      { label: '해설',       href: pdfPath(g, y, m, '해설'),      primary: false },
+      { label: '해설',       href: pdfPath(g, y, m, '풀이'),      primary: false },
     ]);
   } else {
     resultMsg.textContent = `${g} · ${y}년 ${parseInt(m)}월`;
     renderButtons([
       { label: '문제 PDF', href: pdfPath(g, y, m, '문제'), primary: true },
-      { label: '해설 PDF', href: pdfPath(g, y, m, '해설'), primary: false },
+      { label: '해설 PDF', href: pdfPath(g, y, m, '풀이'), primary: false },
     ]);
   }
 });
