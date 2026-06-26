@@ -100,9 +100,10 @@
   .result p{margin:0 0 14px;font-size:13px;color:var(--ink-dim);}
   .result.ready p{color:var(--amber-dim);}
 
-  .btn-row{display:flex;gap:10px;}
+  .btn-row{display:flex;gap:10px;flex-wrap:wrap;}
   .btn{
     flex:1;
+    min-width:104px;
     display:block;
     padding:14px 10px;
     border-radius:9px;
@@ -160,10 +161,7 @@
 
   <div class="result" id="result">
     <p id="resultMsg">학년 / 연도 / 월을 모두 선택하면 여기에서 열 수 있어요.</p>
-    <div class="btn-row">
-      <a class="btn btn-problem disabled" id="btnProblem" target="_blank" rel="noopener">문제 PDF</a>
-      <a class="btn btn-solution disabled" id="btnSolution" target="_blank" rel="noopener">해설 PDF</a>
-    </div>
+    <div class="btn-row" id="btnRow"></div>
   </div>
 
   <footer>
@@ -179,16 +177,84 @@
    예) files/고1/2024/03_문제.pdf
        files/고1/2024/03_해설.pdf
 
+   수능은 월 대신 "수능"이라는 값을 쓰고, 홀수형/짝수형을 따로 둡니다.
+   예) files/고3/2024/수능_홀수_문제.pdf
+       files/고3/2024/수능_짝수_문제.pdf
+       files/고3/2024/수능_해설.pdf
+   DATA에는 { grade: "고3", year: 2024, month: "수능" } 한 줄만 추가하면
+   화면에 "홀수형 문제 / 짝수형 문제 / 해설" 버튼 3개가 자동으로 나타납니다.
+
    새 회차를 추가할 때는:
-   1) files/학년/연도/ 폴더 안에 "월_문제.pdf", "월_해설.pdf" 두 개를 올리고
+   1) files/학년/연도/ 폴더 안에 해당 파일들을 올리고
       (그 폴더가 없으면 업로드하면서 새로 생성됨)
    2) 아래 DATA 배열에 한 줄만 추가하면 끝 — 파일 경로는 자동 계산됩니다.
-   (월은 두 자리, 예: 03, 06, 09, 11)
+   (월은 두 자리, 예: 03, 06, 09, 11 / 수능은 "수능"이라고 적기)
    ============================================================ */
 const DATA = [
   // 예시 — 실제 파일을 올린 뒤 아래처럼 한 줄씩 추가하세요.
-  // { grade: "고1", year: 2024, month: "03" },
-  // { grade: "고2", year: 2024, month: "06" },
+
+  // 고1
+  { grade: "고1", year: 2023, month: "03" },
+  { grade: "고1", year: 2023, month: "06" },
+  { grade: "고1", year: 2023, month: "09" },
+  { grade: "고1", year: 2023, month: "12" },
+  { grade: "고1", year: 2024, month: "03" },
+  { grade: "고1", year: 2024, month: "06" },
+  { grade: "고1", year: 2024, month: "09" },
+  { grade: "고1", year: 2024, month: "10" },
+  { grade: "고1", year: 2025, month: "03" },
+  { grade: "고1", year: 2025, month: "06" },
+  { grade: "고1", year: 2025, month: "09" },
+  { grade: "고1", year: 2025, month: "10" },
+  { grade: "고1", year: 2026, month: "03" },
+  { grade: "고1", year: 2026, month: "06" },
+
+  // 고2
+  { grade: "고2", year: 2023, month: "03" },
+  { grade: "고2", year: 2023, month: "06" },
+  { grade: "고2", year: 2023, month: "09" },
+  { grade: "고2", year: 2023, month: "12" },
+  { grade: "고2", year: 2024, month: "03" },
+  { grade: "고2", year: 2024, month: "06" },
+  { grade: "고2", year: 2024, month: "09" },
+  { grade: "고2", year: 2024, month: "10" },
+  { grade: "고2", year: 2025, month: "03" },
+  { grade: "고2", year: 2025, month: "06" },
+  { grade: "고2", year: 2025, month: "09" },
+  { grade: "고2", year: 2025, month: "10" },
+  { grade: "고2", year: 2026, month: "03" },
+  { grade: "고2", year: 2026, month: "06" },
+
+
+  // 고3
+  { grade: "고3", year: 2023, month: "03" },
+  { grade: "고3", year: 2023, month: "05" },
+  { grade: "고3", year: 2023, month: "06" },
+  { grade: "고3", year: 2023, month: "07" },
+  { grade: "고3", year: 2023, month: "09" },
+  { grade: "고3", year: 2023, month: "10" },
+  { grade: "고3", year: 2023, month: "수능" },
+
+  { grade: "고3", year: 2024, month: "03" },
+  { grade: "고3", year: 2024, month: "05" },
+  { grade: "고3", year: 2024, month: "06" },
+  { grade: "고3", year: 2024, month: "07" },
+  { grade: "고3", year: 2024, month: "09" },
+  { grade: "고3", year: 2024, month: "10" },
+  { grade: "고3", year: 2024, month: "수능" },
+
+  { grade: "고3", year: 2025, month: "03" },
+  { grade: "고3", year: 2025, month: "05" },
+  { grade: "고3", year: 2025, month: "06" },
+  { grade: "고3", year: 2025, month: "07" },
+  { grade: "고3", year: 2025, month: "09" },
+  { grade: "고3", year: 2025, month: "10" },
+  { grade: "고3", year: 2025, month: "수능" },
+
+  { grade: "고3", year: 2026, month: "03" },
+  { grade: "고3", year: 2026, month: "05" },
+  { grade: "고3", year: 2026, month: "06" },
+
 ];
 
 function pdfPath(grade, year, month, type){
@@ -202,8 +268,30 @@ const yearSel  = document.getElementById('year');
 const monthSel = document.getElementById('month');
 const result   = document.getElementById('result');
 const resultMsg= document.getElementById('resultMsg');
-const btnP     = document.getElementById('btnProblem');
-const btnS     = document.getElementById('btnSolution');
+const btnRow   = document.getElementById('btnRow');
+
+function renderButtons(buttons){
+  btnRow.innerHTML = '';
+  buttons.forEach(b=>{
+    const a = document.createElement('a');
+    a.className = 'btn ' + (b.primary ? 'btn-problem' : 'btn-solution');
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.href = b.href;
+    a.textContent = b.label;
+    btnRow.appendChild(a);
+  });
+}
+
+function renderDisabledButtons(labels){
+  btnRow.innerHTML = '';
+  labels.forEach(label=>{
+    const a = document.createElement('a');
+    a.className = 'btn disabled';
+    a.textContent = label;
+    btnRow.appendChild(a);
+  });
+}
 
 function fillSelect(sel, items, placeholder){
   sel.innerHTML = '';
@@ -251,10 +339,7 @@ function resetDown(level){
 function clearResult(){
   result.classList.remove('ready');
   resultMsg.textContent = '학년 / 연도 / 월을 모두 선택하면 여기에서 열 수 있어요.';
-  [btnP, btnS].forEach(b=>{
-    b.classList.add('disabled');
-    b.removeAttribute('href');
-  });
+  renderDisabledButtons(['문제 PDF', '해설 PDF']);
 }
 
 gradeSel.addEventListener('change', ()=>{
@@ -280,9 +365,21 @@ monthSel.addEventListener('change', ()=>{
   const entry = DATA.find(d=>d.grade===g && String(d.year)===String(y) && d.month===m);
   if(!entry){ clearResult(); return; }
   result.classList.add('ready');
-  resultMsg.textContent = `${g} · ${y}년 ${parseInt(m)}월`;
-  btnP.href = pdfPath(g, y, m, '문제'); btnP.classList.remove('disabled');
-  btnS.href = pdfPath(g, y, m, '해설'); btnS.classList.remove('disabled');
+
+  if(m === '수능'){
+    resultMsg.textContent = `${g} · ${y}년 수능`;
+    renderButtons([
+      { label: '홀수형 문제', href: pdfPath(g, y, m, '홀수_문제'), primary: true },
+      { label: '짝수형 문제', href: pdfPath(g, y, m, '짝수_문제'), primary: true },
+      { label: '해설',       href: pdfPath(g, y, m, '해설'),      primary: false },
+    ]);
+  } else {
+    resultMsg.textContent = `${g} · ${y}년 ${parseInt(m)}월`;
+    renderButtons([
+      { label: '문제 PDF', href: pdfPath(g, y, m, '문제'), primary: true },
+      { label: '해설 PDF', href: pdfPath(g, y, m, '해설'), primary: false },
+    ]);
+  }
 });
 
 init();
