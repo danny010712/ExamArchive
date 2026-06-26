@@ -228,6 +228,21 @@ const DATA = [
   { grade: "고1", year: 2026, month: "06" },
 
   // 고2
+  { grade: "고2", year: 2020, month: "04" },
+  { grade: "고2", year: 2020, month: "06" },
+  { grade: "고2", year: 2020, month: "09" },
+  { grade: "고2", year: 2020, month: "11" },
+
+  { grade: "고2", year: 2021, month: "03" },
+  { grade: "고2", year: 2021, month: "06" },
+  { grade: "고2", year: 2021, month: "09" },
+  { grade: "고2", year: 2021, month: "11" },
+
+  { grade: "고2", year: 2022, month: "03" },
+  { grade: "고2", year: 2022, month: "06" },
+  { grade: "고2", year: 2022, month: "09" },
+  { grade: "고2", year: 2022, month: "11" },
+
   { grade: "고2", year: 2023, month: "03" },
   { grade: "고2", year: 2023, month: "06" },
   { grade: "고2", year: 2023, month: "09" },
@@ -392,13 +407,13 @@ monthSel.addEventListener('change', ()=>{
     renderButtons([
       { label: '홀수형 문제', href: pdfPath(g, y, m, '홀수_문제'), primary: true },
       { label: '짝수형 문제', href: pdfPath(g, y, m, '짝수_문제'), primary: true },
-      { label: '해설',       href: pdfPath(g, y, m, '풀이'),      primary: false },
+      { label: '해설',       href: pdfPath(g, y, m, '해설'),      primary: false },
     ]);
   } else {
     resultMsg.textContent = `${g} · ${y}년 ${parseInt(m)}월`;
     renderButtons([
       { label: '문제 PDF', href: pdfPath(g, y, m, '문제'), primary: true },
-      { label: '해설 PDF', href: pdfPath(g, y, m, '풀이'), primary: false },
+      { label: '해설 PDF', href: pdfPath(g, y, m, '해설'), primary: false },
     ]);
   }
 });
