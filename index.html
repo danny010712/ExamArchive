@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>기출문제 보관함</title>
+<style>
+  :root{
+    --navy:#1F2A44;
+    --navy-light:#2E3C5E;
+    --paper:#F7F5F1;
+    --paper-dim:#EEEAE2;
+    --ink:#2B2E36;
+    --ink-dim:#6B7280;
+    --amber:#C97A2E;
+    --amber-dim:#E8C9A4;
+    --line:#D8D3C6;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", system-ui, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font-family:var(--sans);}
+  body{
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:28px 16px 60px;
+  }
+  .wrap{width:100%;max-width:480px;}
+
+  header{margin-bottom:22px;}
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--amber);
+    margin:0 0 6px;
+  }
+  h1{
+    font-size:24px;
+    line-height:1.3;
+    margin:0 0 4px;
+    color:var(--navy);
+    letter-spacing:-0.01em;
+  }
+  .sub{font-size:13px;color:var(--ink-dim);margin:0;}
+
+  .panel{
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:20px;
+    margin-bottom:16px;
+  }
+
+  .field{margin-bottom:16px;}
+  .field:last-child{margin-bottom:0;}
+  label{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    font-size:12px;
+    font-weight:600;
+    color:var(--navy);
+    margin-bottom:7px;
+  }
+  label .count{
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:400;
+    color:var(--ink-dim);
+  }
+  select{
+    width:100%;
+    padding:13px 14px;
+    font-size:15px;
+    font-family:var(--sans);
+    color:var(--ink);
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:9px;
+    appearance:none;
+    -webkit-appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%236B7280'/></svg>");
+    background-repeat:no-repeat;
+    background-position:right 14px center;
+  }
+  select:disabled{color:var(--ink-dim);opacity:.6;}
+  select:focus-visible{outline:2px solid var(--amber);outline-offset:1px;}
+
+  .result{
+    border:1px dashed var(--line);
+    border-radius:14px;
+    padding:20px;
+    text-align:center;
+  }
+  .result.ready{border-style:solid;border-color:var(--navy);background:var(--navy);}
+  .result p{margin:0 0 14px;font-size:13px;color:var(--ink-dim);}
+  .result.ready p{color:var(--amber-dim);}
+
+  .btn-row{display:flex;gap:10px;}
+  .btn{
+    flex:1;
+    display:block;
+    padding:14px 10px;
+    border-radius:9px;
+    font-size:14px;
+    font-weight:600;
+    text-decoration:none;
+    text-align:center;
+    transition:transform .08s ease;
+  }
+  .btn:active{transform:scale(.97);}
+  .btn-problem{background:var(--amber);color:#fff;}
+  .btn-solution{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.35);}
+  .btn.disabled{background:var(--paper-dim);color:var(--ink-dim);pointer-events:none;}
+
+  footer{
+    margin-top:22px;
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--ink-dim);
+    text-align:center;
+    line-height:1.7;
+  }
+  footer b{color:var(--navy);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Personal Archive</p>
+    <h1>기출문제 보관함</h1>
+    <p class="sub">학년 · 연도 · 월을 고르면 저장된 문제·해설을 엽니다.</p>
+  </header>
+
+  <div class="panel">
+    <div class="field">
+      <label>학년 <span class="count" id="gradeCount"></span></label>
+      <select id="grade">
+        <option value="">선택하세요</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>연도 <span class="count" id="yearCount"></span></label>
+      <select id="year" disabled>
+        <option value="">학년을 먼저 선택하세요</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>월</label>
+      <select id="month" disabled>
+        <option value="">연도를 먼저 선택하세요</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="result" id="result">
+    <p id="resultMsg">학년 / 연도 / 월을 모두 선택하면 여기에서 열 수 있어요.</p>
+    <div class="btn-row">
+      <a class="btn btn-problem disabled" id="btnProblem" target="_blank" rel="noopener">문제 PDF</a>
+      <a class="btn btn-solution disabled" id="btnSolution" target="_blank" rel="noopener">해설 PDF</a>
+    </div>
+  </div>
+
+  <footer>
+    저장된 회차: <b id="totalCount">0</b>개 · 마지막 갱신 시 이 줄은 무시하셔도 됩니다<br>
+    파일 추가 방법은 함께 받은 안내문을 참고하세요.
+  </footer>
+
+</div>
+
+<script>
+/* ============================================================
+   여기에 보유한 파일 목록을 적어둡니다.
+   새 파일을 추가할 때는:
+   1) /files 폴더에 실제 PDF 두 개(문제, 해설)를 올리고
+   2) 아래 DATA 배열에 한 줄을 복사해서 grade/year/month/파일명만 바꿔 추가하세요.
+   파일명 규칙: files/학년_연도_월_문제.pdf / files/학년_연도_월_해설.pdf
+   (월은 두 자리, 예: 03, 06, 09, 11)
+   ============================================================ */
+const DATA = [
+  // 예시 — 실제 파일을 올린 뒤 아래처럼 한 줄씩 추가하세요.
+  // { grade: "고1", year: 2024, month: "03", problem: "files/고1_2024_03_문제.pdf", solution: "files/고1_2024_03_해설.pdf" },
+  // { grade: "고2", year: 2024, month: "06", problem: "files/고2_2024_06_문제.pdf", solution: "files/고2_2024_06_해설.pdf" },
+];
+
+const GRADES = ["고1", "고2", "고3"];
+
+const gradeSel = document.getElementById('grade');
+const yearSel  = document.getElementById('year');
+const monthSel = document.getElementById('month');
+const result   = document.getElementById('result');
+const resultMsg= document.getElementById('resultMsg');
+const btnP     = document.getElementById('btnProblem');
+const btnS     = document.getElementById('btnSolution');
+
+function fillSelect(sel, items, placeholder){
+  sel.innerHTML = '';
+  const opt0 = document.createElement('option');
+  opt0.value = '';
+  opt0.textContent = items.length ? placeholder : '데이터 없음';
+  sel.appendChild(opt0);
+  items.forEach(v=>{
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = typeof v === 'string' && v.match(/^\d{2}$/) ? `${v}월` : v;
+    sel.appendChild(o);
+  });
+  sel.disabled = items.length === 0;
+}
+
+function init(){
+  fillSelect(gradeSel, GRADES, '선택하세요');
+  document.getElementById('totalCount').textContent = DATA.length;
+  GRADES.forEach(g=>{
+    // no-op, just keeping structure obvious
+  });
+  updateGradeCounts();
+  resetDown('year');
+  resetDown('month');
+  clearResult();
+}
+
+function updateGradeCounts(){
+  // not displaying per-grade count by default; left simple on purpose.
+}
+
+function resetDown(level){
+  if(level === 'year'){
+    fillSelect(yearSel, [], '학년을 먼저 선택하세요');
+    yearSel.innerHTML = '<option value="">학년을 먼저 선택하세요</option>';
+    yearSel.disabled = true;
+  }
+  if(level === 'month'){
+    monthSel.innerHTML = '<option value="">연도를 먼저 선택하세요</option>';
+    monthSel.disabled = true;
+  }
+}
+
+function clearResult(){
+  result.classList.remove('ready');
+  resultMsg.textContent = '학년 / 연도 / 월을 모두 선택하면 여기에서 열 수 있어요.';
+  [btnP, btnS].forEach(b=>{
+    b.classList.add('disabled');
+    b.removeAttribute('href');
+  });
+}
+
+gradeSel.addEventListener('change', ()=>{
+  const g = gradeSel.value;
+  resetDown('month');
+  clearResult();
+  if(!g){ resetDown('year'); return; }
+  const years = [...new Set(DATA.filter(d=>d.grade===g).map(d=>d.year))].sort((a,b)=>b-a);
+  fillSelect(yearSel, years, '연도를 선택하세요');
+});
+
+yearSel.addEventListener('change', ()=>{
+  const g = gradeSel.value, y = yearSel.value;
+  clearResult();
+  if(!y){ resetDown('month'); return; }
+  const months = [...new Set(DATA.filter(d=>d.grade===g && String(d.year)===String(y)).map(d=>d.month))].sort();
+  fillSelect(monthSel, months, '월을 선택하세요');
+});
+
+monthSel.addEventListener('change', ()=>{
+  const g = gradeSel.value, y = yearSel.value, m = monthSel.value;
+  if(!m){ clearResult(); return; }
+  const entry = DATA.find(d=>d.grade===g && String(d.year)===String(y) && d.month===m);
+  if(!entry){ clearResult(); return; }
+  result.classList.add('ready');
+  resultMsg.textContent = `${g} · ${y}년 ${parseInt(m)}월`;
+  btnP.href = entry.problem; btnP.classList.remove('disabled');
+  btnS.href = entry.solution; btnS.classList.remove('disabled');
+});
+
+init();
+</script>
+</body>
+</html>
