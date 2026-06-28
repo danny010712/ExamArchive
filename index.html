@@ -100,25 +100,43 @@
   .result p{margin:0 0 14px;font-size:13px;color:var(--ink-dim);}
   .result.ready p{color:var(--amber-dim);}
 
-  .btn-row{display:flex;gap:10px;flex-wrap:wrap;}
+  .btn-row{display:flex;gap:8px;flex-wrap:nowrap;}
   .btn{
     flex:1;
-    min-width:104px;
+    min-width:0;
     display:block;
-    padding:14px 10px;
+    padding:13px 6px;
     border-radius:9px;
-    font-size:14px;
+    font-size:13px;
     font-weight:600;
     text-decoration:none;
     text-align:center;
     transition:transform .08s ease;
+    white-space:normal;
+    line-height:1.25;
   }
   .btn:active{transform:scale(.97);}
   .btn-problem{background:var(--amber);color:#fff;}
   .btn-solution{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.35);}
   .btn.disabled{background:var(--paper-dim);color:var(--ink-dim);pointer-events:none;}
 
-  .qrow{display:flex;gap:10px;}
+  .qrow{display:flex;gap:8px;}
+  .qrow select{
+    width:auto;
+    flex:0 0 76px;
+    padding:13px 8px;
+    font-size:14px;
+    font-family:var(--sans);
+    color:var(--ink);
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:9px;
+    appearance:none;
+    -webkit-appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%236B7280'/></svg>");
+    background-repeat:no-repeat;
+    background-position:right 10px center;
+  }
   .qrow input{
     flex:1;
     min-width:0;
@@ -185,6 +203,10 @@
     <div class="field">
       <label>문제 번호 <span class="count">유튜브 해설 영상 검색</span></label>
       <div class="qrow">
+        <select id="trackSel" style="display:none;">
+          <option value="가형">가형</option>
+          <option value="나형">나형</option>
+        </select>
         <input type="number" id="qNum" min="1" placeholder="예: 28" disabled>
         <a class="btn disabled" id="btnYoutube" target="_blank" rel="noopener">영상 검색</a>
       </div>
@@ -214,13 +236,15 @@
    [가형 / 나형 - 문이과 구분 시기]
    고2는 2016~2019년, 고3은 2016~2020년(수능 포함)이 가형/나형으로 나뉩니다.
    이 기간의 회차는 DATA에 track: "gana" 를 추가하면, 일반 모의고사든 수능이든
-   상관없이 "가형 문제 / 나형 문제 / 해설" 버튼 3개로 자동 표시됩니다.
+   상관없이 "가형 문제 / 나형 문제 / 가형 해설 / 나형 해설" 버튼 4개로 자동 표시됩니다.
    예) files/고3/2018/06_가형_문제.pdf
        files/고3/2018/06_나형_문제.pdf
-       files/고3/2018/06_해설.pdf
+       files/고3/2018/06_가형_해설.pdf
+       files/고3/2018/06_나형_해설.pdf
        files/고3/2016/수능_가형_문제.pdf
        files/고3/2016/수능_나형_문제.pdf
-       files/고3/2016/수능_해설.pdf
+       files/고3/2016/수능_가형_해설.pdf
+       files/고3/2016/수능_나형_해설.pdf
    DATA: { grade: "고3", year: 2018, month: "06", track: "gana" }
         { grade: "고3", year: 2016, month: "수능", track: "gana" }
    (정확한 시행 월은 연도별로 다를 수 있으니 실제 자료 확인 후 채워주세요.)
@@ -254,7 +278,7 @@ const DATA = [
   { grade: "고1", year: 2019, month: "06" },
   { grade: "고1", year: 2019, month: "09" },
   { grade: "고1", year: 2019, month: "11" },
-
+  
   { grade: "고1", year: 2020, month: "03" },
   { grade: "고1", year: 2020, month: "06" },
   { grade: "고1", year: 2020, month: "09" },
@@ -289,7 +313,7 @@ const DATA = [
   { grade: "고1", year: 2026, month: "06" },
 
   // 고2
-  { grade: "고2", year: 2019, month: "04", track: "gana" },
+  { grade: "고2", year: 2019, month: "03", track: "gana" },
   { grade: "고2", year: 2019, month: "06", track: "gana" },
   { grade: "고2", year: 2019, month: "09", track: "gana" },
   { grade: "고2", year: 2019, month: "11", track: "gana" },
@@ -374,6 +398,7 @@ const resultMsg= document.getElementById('resultMsg');
 const btnRow   = document.getElementById('btnRow');
 const qNum     = document.getElementById('qNum');
 const btnYoutube = document.getElementById('btnYoutube');
+const trackSel = document.getElementById('trackSel');
 
 let currentEntry = null; // { grade, year, month }
 
@@ -407,19 +432,23 @@ function updateYoutubeLink(){
     btnYoutube.removeAttribute('href');
     return;
   }
-  const { grade, year, month } = currentEntry;
+  const { grade, year, month, track } = currentEntry;
   const monthPart = month === '수능' ? '수능' : `${parseInt(month)}월`;
-  const query = `${YT_CHANNEL} ${grade} ${year}년 ${monthPart} ${num}번`;
+  const typePart = track === 'gana' ? ` ${trackSel.value}` : '';
+  const query = `${YT_CHANNEL} ${grade} ${year}년 ${monthPart}${typePart} ${num}번`;
   btnYoutube.href = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(query);
   btnYoutube.classList.remove('disabled');
 }
 
 qNum.addEventListener('input', updateYoutubeLink);
+trackSel.addEventListener('change', updateYoutubeLink);
 
 function resetYoutubeField(){
   currentEntry = null;
   qNum.value = '';
   qNum.disabled = true;
+  trackSel.style.display = 'none';
+  trackSel.value = '가형';
   btnYoutube.classList.add('disabled');
   btnYoutube.removeAttribute('href');
 }
@@ -507,12 +536,17 @@ monthSel.addEventListener('change', ()=>{
   const label = m === '수능' ? `${y}년 수능` : `${y}년 ${parseInt(m)}월`;
   resultMsg.textContent = `${g} · ${label}`;
 
+  currentEntry = { grade: g, year: y, month: m, track };
+  qNum.disabled = false;
+  trackSel.style.display = track === 'gana' ? '' : 'none';
+  updateYoutubeLink();
+
   if(track === 'gana'){
     renderButtons([
       { label: '가형 문제', href: pdfPath(g, y, m, '가형_문제'), primary: true },
       { label: '나형 문제', href: pdfPath(g, y, m, '나형_문제'), primary: true },
-      { label: '가형_해설', href: pdfPath(g, y, m, '가형_해설'),      primary: false },
-      { label: '나형_해설', href: pdfPath(g, y, m, '나형_해설'),      primary: false },
+      { label: '가형 해설', href: pdfPath(g, y, m, '가형_해설'), primary: false },
+      { label: '나형 해설', href: pdfPath(g, y, m, '나형_해설'), primary: false },
     ]);
   } else {
     renderButtons([
