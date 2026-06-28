@@ -204,12 +204,26 @@
    예) files/고1/2024/03_문제.pdf
        files/고1/2024/03_해설.pdf
 
-   수능은 월 대신 "수능"이라는 값을 쓰고, 홀수형/짝수형을 따로 둡니다.
-   예) files/고3/2024/수능_홀수_문제.pdf
-       files/고3/2024/수능_짝수_문제.pdf
+   [수능]
+   월 대신 "수능"이라는 값을 쓰되, 홀수형/짝수형 구분 없이 통합 파일 하나로 사용합니다.
+   예) files/고3/2024/수능_문제.pdf
        files/고3/2024/수능_해설.pdf
-   DATA에는 { grade: "고3", year: 2024, month: "수능" } 한 줄만 추가하면
-   화면에 "홀수형 문제 / 짝수형 문제 / 해설" 버튼 3개가 자동으로 나타납니다.
+   DATA: { grade: "고3", year: 2024, month: "수능" }
+   → 일반 월과 똑같이 "문제 PDF / 해설 PDF" 버튼 2개로 표시됩니다.
+
+   [가형 / 나형 - 문이과 구분 시기]
+   고2는 2016~2019년, 고3은 2016~2020년(수능 포함)이 가형/나형으로 나뉩니다.
+   이 기간의 회차는 DATA에 track: "gana" 를 추가하면, 일반 모의고사든 수능이든
+   상관없이 "가형 문제 / 나형 문제 / 해설" 버튼 3개로 자동 표시됩니다.
+   예) files/고3/2018/06_가형_문제.pdf
+       files/고3/2018/06_나형_문제.pdf
+       files/고3/2018/06_해설.pdf
+       files/고3/2016/수능_가형_문제.pdf
+       files/고3/2016/수능_나형_문제.pdf
+       files/고3/2016/수능_해설.pdf
+   DATA: { grade: "고3", year: 2018, month: "06", track: "gana" }
+        { grade: "고3", year: 2016, month: "수능", track: "gana" }
+   (정확한 시행 월은 연도별로 다를 수 있으니 실제 자료 확인 후 채워주세요.)
 
    새 회차를 추가할 때는:
    1) files/학년/연도/ 폴더 안에 해당 파일들을 올리고
@@ -240,7 +254,7 @@ const DATA = [
   { grade: "고1", year: 2019, month: "06" },
   { grade: "고1", year: 2019, month: "09" },
   { grade: "고1", year: 2019, month: "11" },
-
+  
   { grade: "고1", year: 2020, month: "03" },
   { grade: "고1", year: 2020, month: "06" },
   { grade: "고1", year: 2020, month: "09" },
@@ -275,6 +289,11 @@ const DATA = [
   { grade: "고1", year: 2026, month: "06" },
 
   // 고2
+  { grade: "고2", year: 2019, month: "04", track: "gana" },
+  { grade: "고2", year: 2019, month: "06", track: "gana" },
+  { grade: "고2", year: 2019, month: "09", track: "gana" },
+  { grade: "고2", year: 2019, month: "11", track: "gana" },
+
   { grade: "고2", year: 2020, month: "04" },
   { grade: "고2", year: 2020, month: "06" },
   { grade: "고2", year: 2020, month: "09" },
@@ -483,15 +502,18 @@ monthSel.addEventListener('change', ()=>{
   qNum.disabled = false;
   updateYoutubeLink();
 
-  if(m === '수능'){
-    resultMsg.textContent = `${g} · ${y}년 수능`;
+  // track이 "gana"면 가형/나형 3버튼, 그 외(수능 포함)는 일반 문제/해설 2버튼
+  const track = entry.track || null;
+  const label = m === '수능' ? `${y}년 수능` : `${y}년 ${parseInt(m)}월`;
+  resultMsg.textContent = `${g} · ${label}`;
+
+  if(track === 'gana'){
     renderButtons([
-      { label: '홀수형 문제', href: pdfPath(g, y, m, '홀수_문제'), primary: true },
-      { label: '짝수형 문제', href: pdfPath(g, y, m, '짝수_문제'), primary: true },
-      { label: '해설',       href: pdfPath(g, y, m, '해설'),      primary: false },
+      { label: '가형 문제', href: pdfPath(g, y, m, '가형_문제'), primary: true },
+      { label: '나형 문제', href: pdfPath(g, y, m, '나형_문제'), primary: true },
+      { label: '해설',      href: pdfPath(g, y, m, '해설'),      primary: false },
     ]);
   } else {
-    resultMsg.textContent = `${g} · ${y}년 ${parseInt(m)}월`;
     renderButtons([
       { label: '문제 PDF', href: pdfPath(g, y, m, '문제'), primary: true },
       { label: '해설 PDF', href: pdfPath(g, y, m, '해설'), primary: false },
