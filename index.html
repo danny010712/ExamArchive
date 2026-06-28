@@ -254,7 +254,7 @@ const DATA = [
   { grade: "고1", year: 2019, month: "06" },
   { grade: "고1", year: 2019, month: "09" },
   { grade: "고1", year: 2019, month: "11" },
-  
+
   { grade: "고1", year: 2020, month: "03" },
   { grade: "고1", year: 2020, month: "06" },
   { grade: "고1", year: 2020, month: "09" },
@@ -511,7 +511,8 @@ monthSel.addEventListener('change', ()=>{
     renderButtons([
       { label: '가형 문제', href: pdfPath(g, y, m, '가형_문제'), primary: true },
       { label: '나형 문제', href: pdfPath(g, y, m, '나형_문제'), primary: true },
-      { label: '해설',      href: pdfPath(g, y, m, '해설'),      primary: false },
+      { label: '가형_해설', href: pdfPath(g, y, m, '가형_해설'),      primary: false },
+      { label: '나형_해설', href: pdfPath(g, y, m, '나형_해설'),      primary: false },
     ]);
   } else {
     renderButtons([
