@@ -162,6 +162,51 @@
     line-height:1.7;
   }
   footer b{color:var(--navy);}
+
+  /* Gemini 패널 */
+  .api-row{display:flex;gap:8px;margin-bottom:12px;}
+  .api-row input{
+    flex:1;min-width:0;
+    padding:11px 14px;font-size:14px;font-family:var(--sans);
+    color:var(--ink);background:var(--paper);
+    border:1px solid var(--line);border-radius:9px;
+    letter-spacing:.04em;
+  }
+  .api-row input:focus-visible{outline:2px solid var(--amber);outline-offset:1px;}
+  .api-save{
+    padding:11px 16px;border-radius:9px;border:none;cursor:pointer;
+    background:var(--navy);color:#fff;font-size:13px;font-weight:600;
+    white-space:nowrap;
+  }
+  .api-save.ok{background:#2d7a3a;}
+
+  .cam-area{
+    border:2px dashed var(--line);border-radius:12px;
+    padding:22px 16px;text-align:center;cursor:pointer;
+    transition:border-color .15s;position:relative;
+  }
+  .cam-area:hover{border-color:var(--amber);}
+  .cam-area input[type=file]{
+    position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;
+  }
+  .cam-icon{font-size:32px;margin-bottom:6px;}
+  .cam-label{font-size:13px;color:var(--ink-dim);}
+
+  .scan-preview{
+    width:100%;border-radius:10px;margin-bottom:12px;
+    display:none;max-height:220px;object-fit:contain;
+  }
+  .scan-btn{
+    width:100%;padding:13px;border-radius:9px;border:none;cursor:pointer;
+    background:var(--amber);color:#fff;font-size:14px;font-weight:700;
+  }
+  .scan-btn:disabled{background:var(--paper-dim);color:var(--ink-dim);cursor:default;}
+  .scan-status{
+    margin-top:10px;font-size:12px;text-align:center;
+    color:var(--ink-dim);min-height:18px;
+  }
+  .scan-status.err{color:#c0392b;}
+  .scan-status.ok{color:#2d7a3a;font-weight:600;}
 </style>
 </head>
 <body>
@@ -210,6 +255,21 @@
         <input type="number" id="qNum" min="1" placeholder="예: 28" disabled>
         <a class="btn disabled" id="btnYoutube" target="_blank" rel="noopener">영상 검색</a>
       </div>
+    </div>
+  </div>
+
+  <!-- Gemini 문제 인식 패널 -->
+  <div class="panel">
+    <div class="field">
+      <label>문제 사진으로 자동 인식 <span class="count">Gemini Vision</span></label>
+      <img id="scanPreview" class="scan-preview" alt="미리보기">
+      <div class="cam-area" id="camArea">
+        <input type="file" accept="image/*" capture="environment" id="imgInput" onchange="onImageSelected(event)">
+        <div class="cam-icon">📷</div>
+        <div class="cam-label">탭하여 촬영 또는 사진 선택</div>
+      </div>
+      <button class="scan-btn" id="scanBtn" disabled onclick="runScan()">문제 인식하기</button>
+      <div class="scan-status" id="scanStatus"></div>
     </div>
   </div>
 
@@ -278,7 +338,7 @@ const DATA = [
   { grade: "고1", year: 2019, month: "06" },
   { grade: "고1", year: 2019, month: "09" },
   { grade: "고1", year: 2019, month: "11" },
-  
+
   { grade: "고1", year: 2020, month: "03" },
   { grade: "고1", year: 2020, month: "06" },
   { grade: "고1", year: 2020, month: "09" },
@@ -557,6 +617,145 @@ monthSel.addEventListener('change', ()=>{
 });
 
 init();
+
+/* ============================================================
+   Gemini Vision — 문제 사진 자동 인식
+   ▼ 여기에 본인의 Gemini API 키를 붙여넣으세요 ▼
+   ============================================================ */
+const GEMINI_API_KEY = "AQ.Ab8RN6La96ptJIaapIVQWSgwbtLikogwPoOwzNDY2CrN41WNog";   // ← 이 부분만 바꾸면 됩니다
+
+let selectedImageB64 = null;
+let selectedImageMime = 'image/jpeg';
+
+function onImageSelected(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  selectedImageMime = file.type || 'image/jpeg';
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const dataUrl = ev.target.result;
+    selectedImageB64 = dataUrl.split(',')[1];
+    const preview = document.getElementById('scanPreview');
+    preview.src = dataUrl;
+    preview.style.display = 'block';
+    document.getElementById('camArea').style.display = 'none';
+    document.getElementById('scanBtn').disabled = false;
+    setStatus('사진이 선택됐어요. "문제 인식하기"를 눌러주세요.');
+  };
+  reader.readAsDataURL(file);
+}
+
+function setStatus(msg, type=''){
+  const el = document.getElementById('scanStatus');
+  el.textContent = msg;
+  el.className = 'scan-status' + (type ? ' ' + type : '');
+}
+
+async function runScan(){
+  if(!GEMINI_API_KEY || GEMINI_API_KEY === '여기에_API_키_입력'){
+    setStatus('index.html 파일에 API 키를 입력해주세요.', 'err'); return;
+  }
+  if(!selectedImageB64){
+    setStatus('사진을 먼저 선택해주세요.', 'err'); return;
+  }
+
+  const btn = document.getElementById('scanBtn');
+  btn.disabled = true;
+  btn.textContent = '분석 중...';
+  setStatus('Gemini가 문제를 분석하고 있어요...');
+
+  const prompt = `이 이미지는 한국 고등학교 수학 시험 문제입니다.
+이미지에서 아래 정보를 찾아 JSON으로만 답하세요. 다른 텍스트는 절대 쓰지 마세요.
+
+{"grade":"고1","year":2024,"month":"06","number":28}
+
+- grade: "고1", "고2", "고3" 중 하나
+- year: 연도 숫자 (예: 2024)
+- month: 두 자리 월 문자열 (예: "03","06","09","11") 또는 수능이면 "수능"
+- number: 이 문제의 번호 (숫자, 모르면 null)
+
+확인이 불가능한 필드는 null로 쓰세요. JSON만 반환하세요.`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          contents:[{parts:[
+            {inline_data:{mime_type: selectedImageMime, data: selectedImageB64}},
+            {text: prompt}
+          ]}],
+          generationConfig:{temperature:0, maxOutputTokens:256}
+        })
+      }
+    );
+    const data = await res.json();
+
+    if(data.error){
+      setStatus('API 오류: ' + data.error.message, 'err');
+      btn.disabled = false; btn.textContent = '문제 인식하기'; return;
+    }
+
+    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const jsonStr = raw.replace(/```json|```/g,'').trim();
+    const parsed = JSON.parse(jsonStr);
+
+    const { grade, year, month, number } = parsed;
+    const matchEntry = DATA.find(d =>
+      d.grade === grade &&
+      String(d.year) === String(year) &&
+      d.month === month
+    );
+
+    if(!matchEntry){
+      setStatus(`인식 결과: ${grade} ${year}년 ${month} — 보관함에 없는 회차예요.`, 'err');
+      btn.disabled = false; btn.textContent = '다시 인식';
+      return;
+    }
+
+    // 드롭다운 자동 선택
+    gradeSel.value = grade;
+    gradeSel.dispatchEvent(new Event('change'));
+    await new Promise(r => setTimeout(r, 50));
+
+    yearSel.value = String(year);
+    yearSel.dispatchEvent(new Event('change'));
+    await new Promise(r => setTimeout(r, 50));
+
+    monthSel.value = month;
+    monthSel.dispatchEvent(new Event('change'));
+
+    // 문제 번호 자동 입력
+    if(number){
+      qNum.value = number;
+      qNum.dispatchEvent(new Event('input'));
+    }
+
+    const monthLabel = month === '수능' ? '수능' : `${parseInt(month)}월`;
+    setStatus(`✓ ${grade} ${year}년 ${monthLabel}${number ? ' ' + number + '번' : ''} 인식 완료!`, 'ok');
+
+    // 사진 초기화 (다음 촬영 준비)
+    btn.textContent = '다시 인식';
+    btn.disabled = false;
+
+  } catch(err){
+    setStatus('분석 실패: ' + err.message, 'err');
+    btn.disabled = false; btn.textContent = '다시 인식';
+  }
+}
+
+// 다시 찍기: 미리보기 클릭 시 초기화
+document.getElementById('scanPreview').addEventListener('click', ()=>{
+  document.getElementById('scanPreview').style.display = 'none';
+  document.getElementById('camArea').style.display = '';
+  document.getElementById('imgInput').value = '';
+  document.getElementById('scanBtn').disabled = true;
+  document.getElementById('scanBtn').textContent = '문제 인식하기';
+  selectedImageB64 = null;
+  setStatus('');
+});
 </script>
 </body>
 </html>
