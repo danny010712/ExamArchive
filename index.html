@@ -272,9 +272,9 @@
       <label>문제 사진으로 자동 인식 <span class="count">Gemini Vision</span></label>
       <img id="scanPreview" class="scan-preview" alt="미리보기">
       <div class="cam-area" id="camArea">
-        <input type="file" accept="image/*" capture="environment" id="imgInput" onchange="onImageSelected(event)">
+        <input type="file" accept="image/*" id="imgInput" onchange="onImageSelected(event)">
         <div class="cam-icon">📷</div>
-        <div class="cam-label">탭하여 촬영 또는 사진 선택</div>
+        <div class="cam-label">탭하여 촬영 또는 갤러리에서 선택</div>
       </div>
       <button class="scan-btn" id="scanBtn" disabled onclick="runScan()">문제 인식하기</button>
       <div class="scan-status" id="scanStatus"></div>
@@ -718,7 +718,7 @@ async function runScan(){
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
       {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
