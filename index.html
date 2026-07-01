@@ -261,6 +261,14 @@
   <!-- Gemini 문제 인식 패널 -->
   <div class="panel">
     <div class="field">
+      <label>Gemini API 키 <span class="count" id="apiStatusLabel">미입력</span></label>
+      <div class="api-row">
+        <input type="password" id="apiKeyInput" placeholder="AIza...">
+        <button class="api-save" id="apiSaveBtn" onclick="saveApiKey()">저장</button>
+        <button class="api-save" style="background:#888;" onclick="deleteApiKey()">삭제</button>
+      </div>
+    </div>
+    <div class="field">
       <label>문제 사진으로 자동 인식 <span class="count">Gemini Vision</span></label>
       <img id="scanPreview" class="scan-preview" alt="미리보기">
       <div class="cam-area" id="camArea">
@@ -620,12 +628,44 @@ init();
 
 /* ============================================================
    Gemini Vision — 문제 사진 자동 인식
-   ▼ 여기에 본인의 Gemini API 키를 붙여넣으세요 ▼
+   API 키는 localStorage에 저장됩니다 (GitHub에 올라가지 않음)
+   최초 1회 입력 후 저장하면 이 기기에서는 자동으로 불러옵니다.
    ============================================================ */
-const GEMINI_API_KEY = "AQ.Ab8RN6La96ptJIaapIVQWSgwbtLikogwPoOwzNDY2CrN41WNog";   // ← 이 부분만 바꾸면 됩니다
-
+let geminiApiKey = '';
 let selectedImageB64 = null;
 let selectedImageMime = 'image/jpeg';
+
+// 페이지 로드 시 저장된 키 자동 불러오기
+(function loadSavedKey(){
+  const saved = localStorage.getItem('gemini_api_key');
+  if(!saved) return;
+  geminiApiKey = saved;
+  document.getElementById('apiKeyInput').value = saved;
+  document.getElementById('apiSaveBtn').textContent = '✓ 저장됨';
+  document.getElementById('apiSaveBtn').classList.add('ok');
+  document.getElementById('apiStatusLabel').textContent = '저장됨';
+})();
+
+function saveApiKey(){
+  const val = document.getElementById('apiKeyInput').value.trim();
+  if(!val) return;
+  geminiApiKey = val;
+  localStorage.setItem('gemini_api_key', val);
+  document.getElementById('apiSaveBtn').textContent = '✓ 저장됨';
+  document.getElementById('apiSaveBtn').classList.add('ok');
+  document.getElementById('apiStatusLabel').textContent = '저장됨';
+  setStatus('API 키가 이 기기에 저장됐어요. 다음부터는 자동으로 불러와요.', 'ok');
+}
+
+function deleteApiKey(){
+  geminiApiKey = '';
+  localStorage.removeItem('gemini_api_key');
+  document.getElementById('apiKeyInput').value = '';
+  document.getElementById('apiSaveBtn').textContent = '저장';
+  document.getElementById('apiSaveBtn').classList.remove('ok');
+  document.getElementById('apiStatusLabel').textContent = '미입력';
+  setStatus('API 키가 삭제됐어요.', 'err');
+}
 
 function onImageSelected(e){
   const file = e.target.files[0];
@@ -652,8 +692,8 @@ function setStatus(msg, type=''){
 }
 
 async function runScan(){
-  if(!GEMINI_API_KEY || GEMINI_API_KEY === '여기에_API_키_입력'){
-    setStatus('index.html 파일에 API 키를 입력해주세요.', 'err'); return;
+  if(!geminiApiKey){
+    setStatus('먼저 Gemini API 키를 입력하고 저장해주세요.', 'err'); return;
   }
   if(!selectedImageB64){
     setStatus('사진을 먼저 선택해주세요.', 'err'); return;
@@ -678,7 +718,7 @@ async function runScan(){
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`,
       {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
@@ -736,7 +776,6 @@ async function runScan(){
     const monthLabel = month === '수능' ? '수능' : `${parseInt(month)}월`;
     setStatus(`✓ ${grade} ${year}년 ${monthLabel}${number ? ' ' + number + '번' : ''} 인식 완료!`, 'ok');
 
-    // 사진 초기화 (다음 촬영 준비)
     btn.textContent = '다시 인식';
     btn.disabled = false;
 
@@ -746,7 +785,7 @@ async function runScan(){
   }
 }
 
-// 다시 찍기: 미리보기 클릭 시 초기화
+// 미리보기 탭 시 초기화
 document.getElementById('scanPreview').addEventListener('click', ()=>{
   document.getElementById('scanPreview').style.display = 'none';
   document.getElementById('camArea').style.display = '';
