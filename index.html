@@ -192,6 +192,26 @@
   .scan-status.err{color:#c0392b;}
   .scan-status.ok{color:#2d7a3a;font-weight:600;}
 
+  /* 하이라이트 캔버스 */
+  #hlCanvas{
+    width:100%;border-radius:10px;margin-bottom:12px;
+    display:none;cursor:pointer;
+  }
+
+  /* OCR 텍스트 박스 */
+  .ocr-box{
+    margin-top:10px;background:var(--paper);border:1px solid var(--line);
+    border-radius:9px;padding:10px 12px;font-size:11px;font-family:var(--mono);
+    color:var(--ink-dim);line-height:1.7;white-space:pre-wrap;word-break:break-all;
+    max-height:120px;overflow-y:auto;display:none;
+  }
+  .ocr-box.show{display:block;}
+  .ocr-box-label{
+    font-size:11px;font-weight:600;color:var(--navy);margin-top:10px;
+    display:none;
+  }
+  .ocr-box-label.show{display:block;}
+
   .match-card{
     margin-top:12px;background:var(--paper);border:1px solid var(--line);
     border-radius:10px;padding:12px 14px;font-size:12px;line-height:1.7;
@@ -207,6 +227,25 @@
   .match-item .mi-label{font-weight:700;color:var(--navy);font-size:13px;}
   .match-item .mi-score{font-family:var(--mono);font-size:10px;color:var(--ink-dim);}
   .match-item .mi-preview{color:var(--ink-dim);font-size:11px;margin-top:2px;}
+
+  /* 수동 키워드 검색 */
+  .kw-row{display:flex;gap:8px;margin-top:6px;}
+  .kw-row input{
+    flex:1;min-width:0;
+    padding:11px 14px;font-size:14px;font-family:var(--sans);
+    color:var(--ink);background:var(--paper);
+    border:1px solid var(--line);border-radius:9px;
+  }
+  .kw-row input:focus-visible{outline:2px solid var(--amber);outline-offset:1px;}
+  .kw-btn{
+    padding:11px 16px;border-radius:9px;border:none;cursor:pointer;
+    background:var(--navy);color:#fff;font-size:13px;font-weight:600;
+    white-space:nowrap;
+  }
+  .kw-result{
+    margin-top:10px;font-size:12px;color:var(--ink-dim);display:none;
+  }
+  .kw-result.show{display:block;}
 </style>
 </head>
 <body>
@@ -262,6 +301,7 @@
   <div class="panel">
     <div class="field">
       <label>문제 사진으로 자동 인식 <span class="count">OCR · DB 매칭</span></label>
+      <canvas id="hlCanvas"></canvas>
       <img id="scanPreview" class="scan-preview" alt="미리보기">
       <div class="cam-area" id="camArea">
         <input type="file" accept="image/*" id="imgInput" onchange="onImageSelected(event)">
@@ -270,7 +310,18 @@
       </div>
       <button class="scan-btn" id="scanBtn" disabled onclick="runScan()">문제 인식하기</button>
       <div class="scan-status" id="scanStatus"></div>
+      <div class="ocr-box-label" id="ocrLabel">📝 인식된 텍스트</div>
+      <div class="ocr-box" id="ocrBox"></div>
       <div class="match-card" id="matchCard"></div>
+    </div>
+
+    <div class="field">
+      <label>키워드로 직접 검색 <span class="count">DB 수동 검색</span></label>
+      <div class="kw-row">
+        <input type="text" id="kwInput" placeholder="예: 이차함수 실근 방정식">
+        <button class="kw-btn" onclick="runKeywordSearch()">검색</button>
+      </div>
+      <div class="kw-result match-card" id="kwResult"></div>
     </div>
   </div>
 
@@ -621,12 +672,11 @@ init();
 
 /* ============================================================
    OCR + DB 매칭 — 문제 사진 자동 인식
-   Tesseract.js로 텍스트 추출 → db.json과 매칭
+   Tesseract.js OCR → db.json 매칭 + 텍스트 표시 + 하이라이트
    ============================================================ */
 let selectedImageFile = null;
-let examDB = null;  // db.json 로드 후 저장
+let examDB = null;
 
-// db.json 미리 로드
 fetch('db.json')
   .then(r => r.json())
   .then(data => { examDB = data; })
@@ -640,155 +690,181 @@ function onImageSelected(e){
   const preview = document.getElementById('scanPreview');
   preview.src = url;
   preview.style.display = 'block';
+  document.getElementById('hlCanvas').style.display = 'none';
   document.getElementById('camArea').style.display = 'none';
   document.getElementById('scanBtn').disabled = false;
   document.getElementById('matchCard').classList.remove('show');
+  hideOcrBox();
   setStatus('사진이 선택됐어요. "문제 인식하기"를 눌러주세요.');
 }
 
 function setStatus(msg, type=''){
   const el = document.getElementById('scanStatus');
   el.textContent = msg;
-  el.className = 'scan-status' + (type ? ' ' + type : '');
+  el.className = 'scan-status' + (type ? ' '+type : '');
 }
 
-// 텍스트 유사도 (간단한 단어 교집합 기반 Jaccard)
+function showOcrBox(text){
+  document.getElementById('ocrLabel').classList.add('show');
+  const box = document.getElementById('ocrBox');
+  box.textContent = text.trim() || '(추출된 텍스트 없음)';
+  box.classList.add('show');
+}
+
+function hideOcrBox(){
+  document.getElementById('ocrLabel').classList.remove('show');
+  document.getElementById('ocrBox').classList.remove('show');
+  document.getElementById('ocrBox').textContent = '';
+}
+
+// 하이라이트: Tesseract words 데이터로 캔버스에 연두색 박스 그리기
+function drawHighlight(imageFile, words){
+  const canvas = document.getElementById('hlCanvas');
+  const preview = document.getElementById('scanPreview');
+  const img = new Image();
+  const url = URL.createObjectURL(imageFile);
+  img.onload = () => {
+    canvas.width  = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    ctx.strokeStyle = '#5fba3a';
+    ctx.fillStyle   = 'rgba(95,186,58,0.18)';
+    ctx.lineWidth   = Math.max(2, img.naturalWidth / 300);
+    words.forEach(w => {
+      if(w.confidence < 40) return;
+      const b = w.bbox;
+      ctx.fillRect(b.x0, b.y0, b.x1-b.x0, b.y1-b.y0);
+      ctx.strokeRect(b.x0, b.y0, b.x1-b.x0, b.y1-b.y0);
+    });
+    URL.revokeObjectURL(url);
+    preview.style.display = 'none';
+    canvas.style.display = 'block';
+    // 캔버스 탭 시 초기화
+    canvas.onclick = resetScan;
+  };
+  img.src = url;
+}
+
 function similarity(a, b){
-  const tokenize = s => new Set(
-    s.replace(/[^가-힣a-zA-Z0-9]/g,' ')
-     .split(/\s+/)
-     .filter(w => w.length > 1)
+  const tok = s => new Set(
+    s.replace(/[^가-힣a-zA-Z0-9]/g,' ').split(/\s+/).filter(w=>w.length>1)
   );
-  const sa = tokenize(a), sb = tokenize(b);
-  let inter = 0;
-  sa.forEach(w => { if(sb.has(w)) inter++; });
-  const union = new Set([...sa, ...sb]).size;
-  return union === 0 ? 0 : inter / union;
+  const sa = tok(a), sb = tok(b);
+  let inter = 0; sa.forEach(w=>{ if(sb.has(w)) inter++; });
+  const union = new Set([...sa,...sb]).size;
+  return union===0 ? 0 : inter/union;
 }
 
-// 시험 정보 직접 파싱 (우선순위 1)
 function parseExamInfo(text){
-  // 연도: 4자리 숫자
-  const yearMatch = text.match(/(\d{4})/);
-  const year = yearMatch ? parseInt(yearMatch[1]) : null;
-
-  // 학년
-  const gradeMatch = text.match(/고\s*([123])/);
-  const grade = gradeMatch ? `고${gradeMatch[1]}` : null;
-
-  // 월
+  const yearM  = text.match(/(\d{4})/);
+  const gradeM = text.match(/고\s*([123])/);
+  const year   = yearM  ? parseInt(yearM[1])  : null;
+  const grade  = gradeM ? `고${gradeM[1]}`    : null;
   let month = null;
-  if(/수능/.test(text)){
-    month = '수능';
-  } else {
-    const monthMatch = text.match(/(\d{1,2})\s*월/);
-    if(monthMatch) month = String(parseInt(monthMatch[1])).padStart(2,'0');
+  if(/수능/.test(text)) month = '수능';
+  else { const m=text.match(/(\d{1,2})\s*월/); if(m) month=String(parseInt(m[1])).padStart(2,'0'); }
+  const numM   = text.match(/(?:^|\D)(\d{1,2})\s*[.\s]/m);
+  const number = numM ? parseInt(numM[1]) : null;
+  return {grade,year,month,number};
+}
+
+function topMatches(queryText, n=3){
+  if(!examDB) return [];
+  const q = queryText.slice(0,800);
+  let scores = [];
+  for(const entry of examDB){
+    for(const prob of (entry.problems||[])){
+      const s = similarity(q, prob.text);
+      if(s>0.05) scores.push({entry,prob,score:s});
+    }
   }
-
-  // 문제 번호
-  const numMatch = text.match(/(?:^|\D)(\d{1,2})\s*[.\s]/m);
-  const number = numMatch ? parseInt(numMatch[1]) : null;
-
-  return { grade, year, month, number };
+  return scores.sort((a,b)=>b.score-a.score).slice(0,n);
 }
 
 async function runScan(){
-  if(!selectedImageFile){
-    setStatus('사진을 먼저 선택해주세요.', 'err'); return;
-  }
-
+  if(!selectedImageFile){ setStatus('사진을 먼저 선택해주세요.','err'); return; }
   const btn = document.getElementById('scanBtn');
   btn.disabled = true;
   btn.textContent = 'OCR 처리 중...';
+  hideOcrBox();
+  document.getElementById('matchCard').classList.remove('show');
   setStatus('텍스트를 추출하고 있어요... (첫 실행은 10~20초 소요)');
 
   try {
-    // Tesseract OCR (한국어 + 영어)
     const worker = await Tesseract.createWorker('kor+eng', 1, {
       logger: m => {
-        if(m.status === 'recognizing text'){
+        if(m.status==='recognizing text')
           setStatus(`OCR 진행 중... ${Math.round(m.progress*100)}%`);
-        }
       }
     });
-    const { data: { text } } = await worker.recognize(selectedImageFile);
+    const { data } = await worker.recognize(selectedImageFile);
     await worker.terminate();
 
+    const text  = data.text  || '';
+    const words = data.words || [];
+
+    // OCR 텍스트 표시
+    showOcrBox(text);
+
+    // 하이라이트
+    if(words.length > 0) drawHighlight(selectedImageFile, words);
+
     if(!text.trim()){
-      setStatus('텍스트를 추출하지 못했어요. 더 선명한 사진으로 시도해보세요.', 'err');
-      btn.disabled = false; btn.textContent = '다시 인식'; return;
+      setStatus('텍스트를 추출하지 못했어요. 더 선명한 사진으로 시도해보세요.','err');
+      btn.disabled=false; btn.textContent='다시 인식'; return;
     }
 
     setStatus('DB와 매칭 중...');
 
-    // ── 우선순위 1: 시험 정보 직접 파싱 ──
+    // 우선순위 1: 직접 파싱
     const info = parseExamInfo(text);
-    const directMatch = info.grade && info.year && info.month
-      ? DATA.find(d =>
-          d.grade === info.grade &&
-          String(d.year) === String(info.year) &&
-          d.month === info.month
-        )
+    const direct = info.grade&&info.year&&info.month
+      ? DATA.find(d=>d.grade===info.grade&&String(d.year)===String(info.year)&&d.month===info.month)
       : null;
 
-    if(directMatch){
-      await applyMatch(directMatch, info.number,
-        `✓ ${info.grade} ${info.year}년 ${info.month === '수능' ? '수능' : parseInt(info.month)+'월'} 직접 인식 완료!`);
-      btn.disabled = false; btn.textContent = '다시 인식'; return;
+    if(direct){
+      await applyMatch(direct, info.number,
+        `✓ ${info.grade} ${info.year}년 ${info.month==='수능'?'수능':parseInt(info.month)+'월'} 직접 인식 완료!`);
+      btn.disabled=false; btn.textContent='다시 인식'; return;
     }
 
-    // ── 우선순위 2: DB 텍스트 유사도 매칭 ──
+    // 우선순위 2: DB 유사도
     if(!examDB){
-      setStatus('db.json을 불러오지 못했어요. 직접 선택해주세요.', 'err');
-      btn.disabled = false; btn.textContent = '다시 인식'; return;
+      setStatus('db.json을 불러오지 못했어요.','err');
+      btn.disabled=false; btn.textContent='다시 인식'; return;
     }
 
-    // 문제 텍스트 중 상위 키워드만 추출 (길이 절약)
-    const queryText = text.slice(0, 800);
-    let scores = [];
-
-    for(const entry of examDB){
-      for(const prob of (entry.problems || [])){
-        const s = similarity(queryText, prob.text);
-        if(s > 0.05){
-          scores.push({ entry, prob, score: s });
-        }
-      }
+    const top = topMatches(text);
+    if(top.length===0){
+      setStatus('유사한 문제를 찾지 못했어요. 하단 키워드 검색을 이용해보세요.','err');
+      btn.disabled=false; btn.textContent='다시 인식'; return;
     }
 
-    scores.sort((a,b) => b.score - a.score);
-    const top = scores.slice(0, 3);
-
-    if(top.length === 0){
-      setStatus('유사한 문제를 찾지 못했어요. 더 선명한 사진으로 시도해보세요.', 'err');
-      btn.disabled = false; btn.textContent = '다시 인식'; return;
-    }
-
-    // 결과 카드 표시
-    showMatchCard(top);
-    setStatus(`유사한 문제 ${top.length}개를 찾았어요. 아래에서 선택해주세요.`, 'ok');
-    btn.disabled = false; btn.textContent = '다시 인식';
+    showMatchCard(top, 'matchCard');
+    setStatus(`유사한 문제 ${top.length}개를 찾았어요. 아래에서 선택해주세요.`,'ok');
+    btn.disabled=false; btn.textContent='다시 인식';
 
   } catch(err){
-    setStatus('인식 실패: ' + err.message, 'err');
-    btn.disabled = false; btn.textContent = '다시 인식';
+    setStatus('인식 실패: '+err.message,'err');
+    btn.disabled=false; btn.textContent='다시 인식';
   }
 }
 
-function showMatchCard(top){
-  const card = document.getElementById('matchCard');
+function showMatchCard(top, cardId){
+  const card = document.getElementById(cardId);
   card.innerHTML = '<b>유사 문제 후보</b>';
-  top.forEach(({ entry, prob, score }) => {
-    const monthLabel = entry.month === '수능' ? '수능' : parseInt(entry.month)+'월';
+  top.forEach(({entry,prob,score})=>{
+    const ml = entry.month==='수능'?'수능':parseInt(entry.month)+'월';
     const div = document.createElement('div');
     div.className = 'match-item';
     div.innerHTML = `
-      <div class="mi-label">${entry.grade} · ${entry.year}년 ${monthLabel}${prob.number ? ' ' + prob.number + '번' : ''}</div>
+      <div class="mi-label">${entry.grade} · ${entry.year}년 ${ml}${prob.number?' '+prob.number+'번':''}</div>
       <div class="mi-score">유사도 ${Math.round(score*100)}%</div>
-      <div class="mi-preview">${prob.text.slice(0,60).replace(/\n/g,' ')}...</div>
+      <div class="mi-preview">${prob.text.slice(0,80).replace(/\n/g,' ')}...</div>
     `;
-    div.onclick = () => applyMatch(entry, prob.number,
-      `✓ ${entry.grade} ${entry.year}년 ${monthLabel}${prob.number ? ' ' + prob.number + '번' : ''} 선택됨`);
+    div.onclick = ()=>applyMatch(entry,prob.number,
+      `✓ ${entry.grade} ${entry.year}년 ${ml}${prob.number?' '+prob.number+'번':''} 선택됨`);
     card.appendChild(div);
   });
   card.classList.add('show');
@@ -797,34 +873,50 @@ function showMatchCard(top){
 async function applyMatch(entry, number, statusMsg){
   gradeSel.value = entry.grade;
   gradeSel.dispatchEvent(new Event('change'));
-  await new Promise(r => setTimeout(r, 60));
-
+  await new Promise(r=>setTimeout(r,60));
   yearSel.value = String(entry.year);
   yearSel.dispatchEvent(new Event('change'));
-  await new Promise(r => setTimeout(r, 60));
-
+  await new Promise(r=>setTimeout(r,60));
   monthSel.value = entry.month;
   monthSel.dispatchEvent(new Event('change'));
-
-  if(number){
-    qNum.value = number;
-    qNum.dispatchEvent(new Event('input'));
-  }
-  setStatus(statusMsg, 'ok');
+  if(number){ qNum.value=number; qNum.dispatchEvent(new Event('input')); }
+  setStatus(statusMsg,'ok');
   document.getElementById('matchCard').classList.remove('show');
 }
 
-// 미리보기 탭 시 초기화
-document.getElementById('scanPreview').addEventListener('click', ()=>{
-  document.getElementById('scanPreview').style.display = 'none';
-  document.getElementById('camArea').style.display = '';
-  document.getElementById('imgInput').value = '';
-  document.getElementById('scanBtn').disabled = true;
-  document.getElementById('scanBtn').textContent = '문제 인식하기';
-  document.getElementById('matchCard').classList.remove('show');
-  selectedImageFile = null;
-  setStatus('');
+// 수동 키워드 검색
+function runKeywordSearch(){
+  const kw = document.getElementById('kwInput').value.trim();
+  const resultEl = document.getElementById('kwResult');
+  if(!kw){ resultEl.innerHTML='키워드를 입력해주세요.'; resultEl.classList.add('show'); return; }
+  if(!examDB){ resultEl.innerHTML='db.json을 불러오지 못했어요.'; resultEl.classList.add('show'); return; }
+  const top = topMatches(kw, 5);
+  if(top.length===0){
+    resultEl.innerHTML='<div style="color:#c0392b;font-size:12px;">일치하는 문제를 찾지 못했어요. 다른 키워드를 시도해보세요.</div>';
+    resultEl.classList.add('show'); return;
+  }
+  showMatchCard(top, 'kwResult');
+}
+
+// 엔터로 키워드 검색
+document.getElementById('kwInput').addEventListener('keydown', e=>{
+  if(e.key==='Enter') runKeywordSearch();
 });
+
+function resetScan(){
+  document.getElementById('scanPreview').style.display='none';
+  document.getElementById('hlCanvas').style.display='none';
+  document.getElementById('camArea').style.display='';
+  document.getElementById('imgInput').value='';
+  document.getElementById('scanBtn').disabled=true;
+  document.getElementById('scanBtn').textContent='문제 인식하기';
+  document.getElementById('matchCard').classList.remove('show');
+  hideOcrBox();
+  selectedImageFile=null;
+  setStatus('');
+}
+
+document.getElementById('scanPreview').addEventListener('click', resetScan);
 </script>
 </body>
 </html>
