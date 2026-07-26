@@ -783,14 +783,39 @@ function hideOcrBox(){
   document.getElementById('ocrBox').textContent = '';
 }
 
-function similarity(a, b){
-  const tok = s => new Set(
-    s.replace(/[^가-힣a-zA-Z0-9]/g,' ').split(/\s+/).filter(w=>w.length>1)
-  );
-  const sa = tok(a), sb = tok(b);
-  let inter = 0; sa.forEach(w=>{ if(sb.has(w)) inter++; });
-  const union = new Set([...sa,...sb]).size;
-  return union===0 ? 0 : inter/union;
+function similarity(query, doc){
+  const tok = s => s
+    .replace(/[^가-힣a-zA-Z0-9]/g,' ')
+    .split(/\s+/)
+    .filter(w => w.length > 1);
+
+  const qWords = tok(query);
+  const dSet   = new Set(tok(doc));
+
+  if(qWords.length === 0 || dSet.size === 0) return 0;
+
+  // ── 핵심 지표: 쿼리 단어 중 문서에 포함된 비율 (query coverage) ──
+  // 쿼리가 문서의 일부일 때 정확하게 작동
+  let hit = 0;
+  qWords.forEach(w => { if(dSet.has(w)) hit++; });
+  const coverage = hit / qWords.length;
+
+  // ── 보너스: 연속 2-gram이 문서에도 연속으로 나타나는지 ──
+  // "서로 다른 모든"처럼 구문이 통째로 들어있으면 가중치 추가
+  const docWords = tok(doc);
+  const dBigrams = new Set();
+  for(let i=0; i<docWords.length-1; i++)
+    dBigrams.add(docWords[i]+'|'+docWords[i+1]);
+
+  let bigramHit = 0, bigramTotal = 0;
+  for(let i=0; i<qWords.length-1; i++){
+    bigramTotal++;
+    if(dBigrams.has(qWords[i]+'|'+qWords[i+1])) bigramHit++;
+  }
+  const bigramBonus = bigramTotal > 0 ? bigramHit / bigramTotal : 0;
+
+  // coverage 70% + bigram 30% 가중 합산
+  return coverage * 0.7 + bigramBonus * 0.3;
 }
 
 function parseExamInfo(text){
@@ -813,7 +838,7 @@ function topMatches(queryText, n=3){
   for(const entry of examDB){
     for(const prob of (entry.problems||[])){
       const s = similarity(q, prob.text);
-      if(s > 0.05) scores.push({entry, prob, score: s});
+      if(s > 0.15) scores.push({entry, prob, score: s});
     }
   }
   return scores.sort((a,b)=>b.score-a.score).slice(0,n);
@@ -831,7 +856,7 @@ async function extractTextWithGemini(file){
 설명이나 주석 없이 추출된 텍스트만 출력해줘.`;
       try {
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiApiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview:generateContent?key=${geminiApiKey}`,
           {
             method: 'POST',
             headers: {'Content-Type':'application/json'},
