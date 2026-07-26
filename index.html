@@ -831,7 +831,7 @@ async function extractTextWithGemini(file){
 설명이나 주석 없이 추출된 텍스트만 출력해줘.`;
       try {
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiApiKey}`,
           {
             method: 'POST',
             headers: {'Content-Type':'application/json'},
