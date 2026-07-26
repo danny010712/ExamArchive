@@ -166,15 +166,23 @@
 
   .cam-area{
     border:2px dashed var(--line);border-radius:12px;
-    padding:22px 16px;text-align:center;cursor:pointer;
+    padding:16px;text-align:center;cursor:pointer;
     transition:border-color .15s;position:relative;
   }
   .cam-area:hover{border-color:var(--amber);}
-  .cam-area input[type=file]{
+  .cam-btn-row{display:flex;gap:10px;}
+  .cam-btn{
+    flex:1;position:relative;overflow:hidden;
+    border:1.5px solid var(--line);border-radius:9px;
+    background:var(--paper);padding:14px 8px;
+    cursor:pointer;text-align:center;transition:border-color .15s;
+  }
+  .cam-btn:hover{border-color:var(--amber);}
+  .cam-btn input[type=file]{
     position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;
   }
-  .cam-icon{font-size:32px;margin-bottom:6px;}
-  .cam-label{font-size:13px;color:var(--ink-dim);}
+  .cam-btn-icon{font-size:24px;margin-bottom:4px;}
+  .cam-btn-label{font-size:12px;color:var(--ink-dim);font-weight:600;}
 
   .scan-preview{
     width:100%;border-radius:10px;margin-bottom:12px;
@@ -227,6 +235,12 @@
   .match-item .mi-label{font-weight:700;color:var(--navy);font-size:13px;}
   .match-item .mi-score{font-family:var(--mono);font-size:10px;color:var(--ink-dim);}
   .match-item .mi-preview{color:var(--ink-dim);font-size:11px;margin-top:2px;}
+  .mi-pdf-btn{
+    flex:1;display:inline-block;padding:6px 10px;border-radius:7px;
+    font-size:12px;font-weight:600;text-decoration:none;text-align:center;
+    background:var(--amber);color:#fff;
+  }
+  .mi-pdf-btn-sol{background:var(--navy);}
 
   /* 수동 키워드 검색 */
   .kw-row{display:flex;gap:8px;margin-top:6px;}
@@ -300,13 +314,30 @@
   <!-- OCR + DB 매칭 패널 -->
   <div class="panel">
     <div class="field">
-      <label>문제 사진으로 자동 인식 <span class="count">OCR · DB 매칭</span></label>
+      <label>Gemini API 키 <span class="count" id="apiStatusLabel">미입력</span></label>
+      <div class="api-row">
+        <input type="password" id="apiKeyInput" placeholder="AIza...">
+        <button class="api-save" id="apiSaveBtn" onclick="saveApiKey()">저장</button>
+        <button class="api-save" style="background:#888;" onclick="deleteApiKey()">삭제</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>문제 사진으로 자동 인식 <span class="count">Gemini OCR · DB 매칭</span></label>
       <canvas id="hlCanvas"></canvas>
       <img id="scanPreview" class="scan-preview" alt="미리보기">
       <div class="cam-area" id="camArea">
-        <input type="file" accept="image/*" id="imgInput" onchange="onImageSelected(event)">
-        <div class="cam-icon">📷</div>
-        <div class="cam-label">탭하여 촬영 또는 갤러리에서 선택</div>
+        <div class="cam-btn-row">
+          <div class="cam-btn">
+            <input type="file" accept="image/*" capture="environment" id="imgInputCam" onchange="onImageSelected(event)">
+            <div class="cam-btn-icon">📷</div>
+            <div class="cam-btn-label">카메라 촬영</div>
+          </div>
+          <div class="cam-btn">
+            <input type="file" accept="image/*" id="imgInputGallery" onchange="onImageSelected(event)">
+            <div class="cam-btn-icon">🖼️</div>
+            <div class="cam-btn-label">갤러리 선택</div>
+          </div>
+        </div>
       </div>
       <button class="scan-btn" id="scanBtn" disabled onclick="runScan()">문제 인식하기</button>
       <div class="scan-status" id="scanStatus"></div>
@@ -671,9 +702,297 @@ monthSel.addEventListener('change', ()=>{
 init();
 
 /* ============================================================
-   OCR + DB 매칭 — 문제 사진 자동 인식
-   Tesseract.js OCR → db.json 매칭 + 텍스트 표시 + 하이라이트
+   Gemini OCR + DB 매칭
+   - Gemini Vision으로 텍스트 추출 (OCR 전용)
+   - 추출된 텍스트를 로컬 db.json과 매칭
+   - API 키는 localStorage에 저장 (GitHub에 올라가지 않음)
    ============================================================ */
+let selectedImageFile = null;
+let examDB = null;
+let geminiApiKey = '';
+
+// db.json 미리 로드
+fetch('db.json')
+  .then(r => r.json())
+  .then(data => { examDB = data; })
+  .catch(() => { examDB = null; });
+
+// API 키 자동 로드
+(function loadSavedKey(){
+  const saved = localStorage.getItem('gemini_api_key');
+  if(!saved) return;
+  geminiApiKey = saved;
+  document.getElementById('apiKeyInput').value = saved;
+  document.getElementById('apiSaveBtn').textContent = '✓ 저장됨';
+  document.getElementById('apiSaveBtn').classList.add('ok');
+  document.getElementById('apiStatusLabel').textContent = '저장됨';
+})();
+
+function saveApiKey(){
+  const val = document.getElementById('apiKeyInput').value.trim();
+  if(!val) return;
+  geminiApiKey = val;
+  localStorage.setItem('gemini_api_key', val);
+  document.getElementById('apiSaveBtn').textContent = '✓ 저장됨';
+  document.getElementById('apiSaveBtn').classList.add('ok');
+  document.getElementById('apiStatusLabel').textContent = '저장됨';
+  setStatus('API 키가 저장됐어요. 다음부터 자동으로 불러와요.', 'ok');
+}
+
+function deleteApiKey(){
+  geminiApiKey = '';
+  localStorage.removeItem('gemini_api_key');
+  document.getElementById('apiKeyInput').value = '';
+  document.getElementById('apiSaveBtn').textContent = '저장';
+  document.getElementById('apiSaveBtn').classList.remove('ok');
+  document.getElementById('apiStatusLabel').textContent = '미입력';
+  setStatus('API 키가 삭제됐어요.', 'err');
+}
+
+function onImageSelected(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  selectedImageFile = file;
+  const url = URL.createObjectURL(file);
+  const preview = document.getElementById('scanPreview');
+  preview.src = url;
+  preview.style.display = 'block';
+  document.getElementById('hlCanvas').style.display = 'none';
+  document.getElementById('camArea').style.display = 'none';
+  document.getElementById('scanBtn').disabled = false;
+  document.getElementById('matchCard').classList.remove('show');
+  hideOcrBox();
+  setStatus('사진이 선택됐어요. "문제 인식하기"를 눌러주세요.');
+}
+
+function setStatus(msg, type=''){
+  const el = document.getElementById('scanStatus');
+  el.textContent = msg;
+  el.className = 'scan-status' + (type ? ' '+type : '');
+}
+
+function showOcrBox(text){
+  document.getElementById('ocrLabel').classList.add('show');
+  const box = document.getElementById('ocrBox');
+  box.textContent = text.trim() || '(추출된 텍스트 없음)';
+  box.classList.add('show');
+}
+
+function hideOcrBox(){
+  document.getElementById('ocrLabel').classList.remove('show');
+  document.getElementById('ocrBox').classList.remove('show');
+  document.getElementById('ocrBox').textContent = '';
+}
+
+function similarity(a, b){
+  const tok = s => new Set(
+    s.replace(/[^가-힣a-zA-Z0-9]/g,' ').split(/\s+/).filter(w=>w.length>1)
+  );
+  const sa = tok(a), sb = tok(b);
+  let inter = 0; sa.forEach(w=>{ if(sb.has(w)) inter++; });
+  const union = new Set([...sa,...sb]).size;
+  return union===0 ? 0 : inter/union;
+}
+
+function parseExamInfo(text){
+  const yearM  = text.match(/(\d{4})/);
+  const gradeM = text.match(/고\s*([123])/);
+  const year   = yearM  ? parseInt(yearM[1])  : null;
+  const grade  = gradeM ? `고${gradeM[1]}`    : null;
+  let month = null;
+  if(/수능/.test(text)) month = '수능';
+  else { const m=text.match(/(\d{1,2})\s*월/); if(m) month=String(parseInt(m[1])).padStart(2,'0'); }
+  const numM   = text.match(/(?:^|\D)(\d{1,2})\s*[.\s]/m);
+  const number = numM ? parseInt(numM[1]) : null;
+  return {grade, year, month, number};
+}
+
+function topMatches(queryText, n=3){
+  if(!examDB) return [];
+  const q = queryText.slice(0, 1000);
+  let scores = [];
+  for(const entry of examDB){
+    for(const prob of (entry.problems||[])){
+      const s = similarity(q, prob.text);
+      if(s > 0.05) scores.push({entry, prob, score: s});
+    }
+  }
+  return scores.sort((a,b)=>b.score-a.score).slice(0,n);
+}
+
+// Gemini로 이미지에서 텍스트만 추출
+async function extractTextWithGemini(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async ev => {
+      const b64 = ev.target.result.split(',')[1];
+      const mime = file.type || 'image/jpeg';
+      const prompt = `이 이미지에서 보이는 모든 텍스트를 그대로 추출해줘. 
+수식, 숫자, 한글, 영어 모두 포함해서 이미지에 있는 텍스트를 빠짐없이 출력해줘.
+설명이나 주석 없이 추출된 텍스트만 출력해줘.`;
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`,
+          {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+              contents:[{parts:[
+                {inline_data:{mime_type: mime, data: b64}},
+                {text: prompt}
+              ]}],
+              generationConfig:{temperature:0, maxOutputTokens:1024}
+            })
+          }
+        );
+        const data = await res.json();
+        if(data.error) { reject(new Error(data.error.message)); return; }
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        resolve(text);
+      } catch(err){ reject(err); }
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function runScan(){
+  if(!geminiApiKey){
+    setStatus('먼저 Gemini API 키를 입력하고 저장해주세요.', 'err'); return;
+  }
+  if(!selectedImageFile){
+    setStatus('사진을 먼저 선택해주세요.', 'err'); return;
+  }
+
+  const btn = document.getElementById('scanBtn');
+  btn.disabled = true;
+  btn.textContent = '텍스트 추출 중...';
+  hideOcrBox();
+  document.getElementById('matchCard').classList.remove('show');
+  setStatus('Gemini가 텍스트를 추출하고 있어요...');
+
+  try {
+    const text = await extractTextWithGemini(selectedImageFile);
+
+    // 추출된 텍스트 표시
+    showOcrBox(text);
+
+    if(!text.trim()){
+      setStatus('텍스트를 추출하지 못했어요. 더 선명한 사진으로 시도해보세요.', 'err');
+      btn.disabled=false; btn.textContent='다시 인식'; return;
+    }
+
+    setStatus('DB와 매칭 중...');
+
+    // 우선순위 1: 시험 정보 직접 파싱
+    const info = parseExamInfo(text);
+    const direct = info.grade && info.year && info.month
+      ? DATA.find(d=>d.grade===info.grade && String(d.year)===String(info.year) && d.month===info.month)
+      : null;
+
+    if(direct){
+      await applyMatch(direct, info.number,
+        `✓ ${info.grade} ${info.year}년 ${info.month==='수능'?'수능':parseInt(info.month)+'월'} 직접 인식 완료!`);
+      btn.disabled=false; btn.textContent='다시 인식'; return;
+    }
+
+    // 우선순위 2: DB 유사도 매칭
+    if(!examDB){
+      setStatus('db.json을 불러오지 못했어요.', 'err');
+      btn.disabled=false; btn.textContent='다시 인식'; return;
+    }
+
+    const top = topMatches(text);
+    if(top.length===0){
+      setStatus('유사한 문제를 찾지 못했어요. 하단 키워드 검색을 이용해보세요.', 'err');
+      btn.disabled=false; btn.textContent='다시 인식'; return;
+    }
+
+    showMatchCard(top, 'matchCard');
+    setStatus(`유사한 문제 ${top.length}개를 찾았어요. 아래에서 선택해주세요.`, 'ok');
+    btn.disabled=false; btn.textContent='다시 인식';
+
+  } catch(err){
+    setStatus('오류: ' + err.message, 'err');
+    btn.disabled=false; btn.textContent='다시 인식';
+  }
+}
+
+function showMatchCard(top, cardId){
+  const card = document.getElementById(cardId);
+  card.innerHTML = '<b>유사 문제 후보</b>';
+  top.forEach(({entry, prob, score})=>{
+    const ml = entry.month==='수능' ? '수능' : parseInt(entry.month)+'월';
+    const track = entry.track || null;
+    const pdfBtns = track==='gana'
+      ? `<div style="display:flex;gap:6px;margin-top:6px;">
+           <a href="${pdfPath(entry.grade,entry.year,entry.month,'가형_문제')}" target="_blank" rel="noopener" class="mi-pdf-btn" onclick="event.stopPropagation()">가형 문제</a>
+           <a href="${pdfPath(entry.grade,entry.year,entry.month,'나형_문제')}" target="_blank" rel="noopener" class="mi-pdf-btn" onclick="event.stopPropagation()">나형 문제</a>
+         </div>`
+      : `<div style="display:flex;gap:6px;margin-top:6px;">
+           <a href="${pdfPath(entry.grade,entry.year,entry.month,'문제')}" target="_blank" rel="noopener" class="mi-pdf-btn" onclick="event.stopPropagation()">문제 PDF</a>
+           <a href="${pdfPath(entry.grade,entry.year,entry.month,'해설')}" target="_blank" rel="noopener" class="mi-pdf-btn mi-pdf-btn-sol" onclick="event.stopPropagation()">해설 PDF</a>
+         </div>`;
+    const div = document.createElement('div');
+    div.className = 'match-item';
+    div.innerHTML = `
+      <div class="mi-label">${entry.grade} · ${entry.year}년 ${ml}${prob.number?' '+prob.number+'번':''}</div>
+      <div class="mi-score">유사도 ${Math.round(score*100)}%</div>
+      <div class="mi-preview">${prob.text.slice(0,80).replace(/\n/g,' ')}...</div>
+      ${pdfBtns}
+    `;
+    div.onclick = ()=>applyMatch(entry, prob.number,
+      `✓ ${entry.grade} ${entry.year}년 ${ml}${prob.number?' '+prob.number+'번':''} 선택됨`);
+    card.appendChild(div);
+  });
+  card.classList.add('show');
+}
+
+async function applyMatch(entry, number, statusMsg){
+  gradeSel.value = entry.grade;
+  gradeSel.dispatchEvent(new Event('change'));
+  await new Promise(r=>setTimeout(r,60));
+  yearSel.value = String(entry.year);
+  yearSel.dispatchEvent(new Event('change'));
+  await new Promise(r=>setTimeout(r,60));
+  monthSel.value = entry.month;
+  monthSel.dispatchEvent(new Event('change'));
+  if(number){ qNum.value=number; qNum.dispatchEvent(new Event('input')); }
+  setStatus(statusMsg, 'ok');
+  document.getElementById('matchCard').classList.remove('show');
+}
+
+function runKeywordSearch(){
+  const kw = document.getElementById('kwInput').value.trim();
+  const resultEl = document.getElementById('kwResult');
+  if(!kw){ resultEl.innerHTML='키워드를 입력해주세요.'; resultEl.classList.add('show'); return; }
+  if(!examDB){ resultEl.innerHTML='db.json을 불러오지 못했어요.'; resultEl.classList.add('show'); return; }
+  const top = topMatches(kw, 5);
+  if(top.length===0){
+    resultEl.innerHTML='<div style="color:#c0392b;font-size:12px;">일치하는 문제를 찾지 못했어요. 다른 키워드를 시도해보세요.</div>';
+    resultEl.classList.add('show'); return;
+  }
+  showMatchCard(top, 'kwResult');
+}
+
+document.getElementById('kwInput').addEventListener('keydown', e=>{
+  if(e.key==='Enter') runKeywordSearch();
+});
+
+function resetScan(){
+  document.getElementById('scanPreview').style.display='none';
+  document.getElementById('hlCanvas').style.display='none';
+  document.getElementById('camArea').style.display='';
+  document.getElementById('imgInputCam').value='';
+  document.getElementById('imgInputGallery').value='';
+  document.getElementById('scanBtn').disabled=true;
+  document.getElementById('scanBtn').textContent='문제 인식하기';
+  document.getElementById('matchCard').classList.remove('show');
+  hideOcrBox();
+  selectedImageFile=null;
+  setStatus('');
+}
+
+document.getElementById('scanPreview').addEventListener('click', resetScan);
 let selectedImageFile = null;
 let examDB = null;
 
@@ -856,12 +1175,36 @@ function showMatchCard(top, cardId){
   card.innerHTML = '<b>유사 문제 후보</b>';
   top.forEach(({entry,prob,score})=>{
     const ml = entry.month==='수능'?'수능':parseInt(entry.month)+'월';
+    const track = entry.track || null;
+
+    // 문제 PDF 경로 결정
+    let problemHref, solutionHref;
+    if(track==='gana'){
+      problemHref = null; // 가형/나형 구분 필요 → 버튼 2개
+      solutionHref = null;
+    } else {
+      problemHref  = pdfPath(entry.grade, entry.year, entry.month, '문제');
+      solutionHref = pdfPath(entry.grade, entry.year, entry.month, '해설');
+    }
+
     const div = document.createElement('div');
     div.className = 'match-item';
+
+    const pdfBtns = track==='gana'
+      ? `<div style="display:flex;gap:6px;margin-top:6px;">
+           <a href="${pdfPath(entry.grade,entry.year,entry.month,'가형_문제')}" target="_blank" rel="noopener" class="mi-pdf-btn" onclick="event.stopPropagation()">가형 문제</a>
+           <a href="${pdfPath(entry.grade,entry.year,entry.month,'나형_문제')}" target="_blank" rel="noopener" class="mi-pdf-btn" onclick="event.stopPropagation()">나형 문제</a>
+         </div>`
+      : `<div style="display:flex;gap:6px;margin-top:6px;">
+           <a href="${problemHref}" target="_blank" rel="noopener" class="mi-pdf-btn" onclick="event.stopPropagation()">문제 PDF</a>
+           <a href="${solutionHref}" target="_blank" rel="noopener" class="mi-pdf-btn mi-pdf-btn-sol" onclick="event.stopPropagation()">해설 PDF</a>
+         </div>`;
+
     div.innerHTML = `
       <div class="mi-label">${entry.grade} · ${entry.year}년 ${ml}${prob.number?' '+prob.number+'번':''}</div>
       <div class="mi-score">유사도 ${Math.round(score*100)}%</div>
       <div class="mi-preview">${prob.text.slice(0,80).replace(/\n/g,' ')}...</div>
+      ${pdfBtns}
     `;
     div.onclick = ()=>applyMatch(entry,prob.number,
       `✓ ${entry.grade} ${entry.year}년 ${ml}${prob.number?' '+prob.number+'번':''} 선택됨`);
