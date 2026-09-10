@@ -313,15 +313,7 @@
   <!-- OCR + DB 매칭 패널 -->
   <div class="panel">
     <div class="field">
-      <label>Gemini API 키 <span class="count" id="apiStatusLabel">미입력</span></label>
-      <div class="api-row">
-        <input type="password" id="apiKeyInput" placeholder="AIza...">
-        <button class="api-save" id="apiSaveBtn" onclick="saveApiKey()">저장</button>
-        <button class="api-save" style="background:#888;" onclick="deleteApiKey()">삭제</button>
-      </div>
-    </div>
-    <div class="field">
-      <label>문제 사진으로 자동 인식 <span class="count">Gemini OCR · DB 매칭</span></label>
+      <label>문제 사진으로 자동 인식 <span class="count">OCR · DB 매칭</span></label>
       <canvas id="hlCanvas"></canvas>
       <img id="scanPreview" class="scan-preview" alt="미리보기">
       <div class="cam-area" id="camArea">
@@ -368,162 +360,32 @@
    예) files/고1/2024/03_문제.pdf
        files/고1/2024/03_해설.pdf
 
-   [수능]
-   월 대신 "수능"이라는 값을 쓰되, 홀수형/짝수형 구분 없이 통합 파일 하나로 사용합니다.
-   예) files/고3/2024/수능_문제.pdf
-       files/고3/2024/수능_해설.pdf
-   DATA: { grade: "고3", year: 2024, month: "수능" }
-   → 일반 월과 똑같이 "문제 PDF / 해설 PDF" 버튼 2개로 표시됩니다.
+   [수능]      월 대신 "수능" 값 사용 (홀/짝 구분 없이 통합 파일 하나).
+   [가형/나형] 파일명에 "가형"/"나형"이 들어있으면 자동으로 track: "gana"로
+              인식되어 "가형 문제 / 나형 문제 / 가형 해설 / 나형 해설"
+              버튼 4개로 표시됩니다.
 
-   [가형 / 나형 - 문이과 구분 시기]
-   고2는 2016~2019년, 고3은 2016~2020년(수능 포함)이 가형/나형으로 나뉩니다.
-   이 기간의 회차는 DATA에 track: "gana" 를 추가하면, 일반 모의고사든 수능이든
-   상관없이 "가형 문제 / 나형 문제 / 가형 해설 / 나형 해설" 버튼 4개로 자동 표시됩니다.
-   예) files/고3/2018/06_가형_문제.pdf
-       files/고3/2018/06_나형_문제.pdf
-       files/고3/2018/06_가형_해설.pdf
-       files/고3/2018/06_나형_해설.pdf
-       files/고3/2016/수능_가형_문제.pdf
-       files/고3/2016/수능_나형_문제.pdf
-       files/고3/2016/수능_가형_해설.pdf
-       files/고3/2016/수능_나형_해설.pdf
-   DATA: { grade: "고3", year: 2018, month: "06", track: "gana" }
-        { grade: "고3", year: 2016, month: "수능", track: "gana" }
-   (정확한 시행 월은 연도별로 다를 수 있으니 실제 자료 확인 후 채워주세요.)
+   DATA는 더 이상 이 파일에 직접 쓰지 않습니다. files/ 폴더를 스캔해
+   manifest.json을 자동 생성하는 build_db.py를 실행하면 끝입니다:
 
-   새 회차를 추가할 때는:
-   1) files/학년/연도/ 폴더 안에 해당 파일들을 올리고
-      (그 폴더가 없으면 업로드하면서 새로 생성됨)
-   2) 아래 DATA 배열에 한 줄만 추가하면 끝 — 파일 경로는 자동 계산됩니다.
-   (월은 두 자리, 예: 03, 06, 09, 11 / 수능은 "수능"이라고 적기)
+     1) files/학년/연도/ 폴더에 PDF를 올리고
+     2) python build_db.py 실행
+     3) manifest.json, db.json, files/ 를 함께 push
+
+   (build_db.py 사용법은 파일 상단 주석 또는 README.md 참고)
    ============================================================ */
-const DATA = [
-  // 예시 — 실제 파일을 올린 뒤 아래처럼 한 줄씩 추가하세요.
+let DATA = [];
 
-  // 고1
-  { grade: "고1", year: 2016, month: "03" },
-  { grade: "고1", year: 2016, month: "06" },
-  { grade: "고1", year: 2016, month: "09" },
-  { grade: "고1", year: 2016, month: "11" },
-
-  { grade: "고1", year: 2017, month: "03" },
-  { grade: "고1", year: 2017, month: "06" },
-  { grade: "고1", year: 2017, month: "09" },
-  { grade: "고1", year: 2017, month: "11" },
-
-  { grade: "고1", year: 2018, month: "03" },
-  { grade: "고1", year: 2018, month: "06" },
-  { grade: "고1", year: 2018, month: "09" },
-  { grade: "고1", year: 2018, month: "11" },
-
-  { grade: "고1", year: 2019, month: "03" },
-  { grade: "고1", year: 2019, month: "06" },
-  { grade: "고1", year: 2019, month: "09" },
-  { grade: "고1", year: 2019, month: "11" },
-
-  { grade: "고1", year: 2020, month: "03" },
-  { grade: "고1", year: 2020, month: "06" },
-  { grade: "고1", year: 2020, month: "09" },
-  { grade: "고1", year: 2020, month: "11" },
-
-  { grade: "고1", year: 2021, month: "03" },
-  { grade: "고1", year: 2021, month: "06" },
-  { grade: "고1", year: 2021, month: "09" },
-  { grade: "고1", year: 2021, month: "11" },
-
-  { grade: "고1", year: 2022, month: "03" },
-  { grade: "고1", year: 2022, month: "06" },
-  { grade: "고1", year: 2022, month: "09" },
-  { grade: "고1", year: 2022, month: "11" },
-
-  { grade: "고1", year: 2023, month: "03" },
-  { grade: "고1", year: 2023, month: "06" },
-  { grade: "고1", year: 2023, month: "09" },
-  { grade: "고1", year: 2023, month: "12" },
-
-  { grade: "고1", year: 2024, month: "03" },
-  { grade: "고1", year: 2024, month: "06" },
-  { grade: "고1", year: 2024, month: "09" },
-  { grade: "고1", year: 2024, month: "10" },
-
-  { grade: "고1", year: 2025, month: "03" },
-  { grade: "고1", year: 2025, month: "06" },
-  { grade: "고1", year: 2025, month: "09" },
-  { grade: "고1", year: 2025, month: "10" },
-
-  { grade: "고1", year: 2026, month: "03" },
-  { grade: "고1", year: 2026, month: "06" },
-
-  // 고2
-  { grade: "고2", year: 2019, month: "03", track: "gana" },
-  { grade: "고2", year: 2019, month: "06", track: "gana" },
-  { grade: "고2", year: 2019, month: "09", track: "gana" },
-  { grade: "고2", year: 2019, month: "11", track: "gana" },
-
-  { grade: "고2", year: 2020, month: "04" },
-  { grade: "고2", year: 2020, month: "06" },
-  { grade: "고2", year: 2020, month: "09" },
-  { grade: "고2", year: 2020, month: "11" },
-
-  { grade: "고2", year: 2021, month: "03" },
-  { grade: "고2", year: 2021, month: "06" },
-  { grade: "고2", year: 2021, month: "09" },
-  { grade: "고2", year: 2021, month: "11" },
-
-  { grade: "고2", year: 2022, month: "03" },
-  { grade: "고2", year: 2022, month: "06" },
-  { grade: "고2", year: 2022, month: "09" },
-  { grade: "고2", year: 2022, month: "11" },
-
-  { grade: "고2", year: 2023, month: "03" },
-  { grade: "고2", year: 2023, month: "06" },
-  { grade: "고2", year: 2023, month: "09" },
-  { grade: "고2", year: 2023, month: "12" },
-
-  { grade: "고2", year: 2024, month: "03" },
-  { grade: "고2", year: 2024, month: "06" },
-  { grade: "고2", year: 2024, month: "09" },
-  { grade: "고2", year: 2024, month: "10" },
-
-  { grade: "고2", year: 2025, month: "03" },
-  { grade: "고2", year: 2025, month: "06" },
-  { grade: "고2", year: 2025, month: "09" },
-  { grade: "고2", year: 2025, month: "10" },
-  
-  { grade: "고2", year: 2026, month: "03" },
-  { grade: "고2", year: 2026, month: "06" },
-
-
-  // 고3
-  { grade: "고3", year: 2023, month: "03" },
-  { grade: "고3", year: 2023, month: "05" },
-  { grade: "고3", year: 2023, month: "06" },
-  { grade: "고3", year: 2023, month: "07" },
-  { grade: "고3", year: 2023, month: "09" },
-  { grade: "고3", year: 2023, month: "10" },
-  { grade: "고3", year: 2023, month: "수능" },
-
-  { grade: "고3", year: 2024, month: "03" },
-  { grade: "고3", year: 2024, month: "05" },
-  { grade: "고3", year: 2024, month: "06" },
-  { grade: "고3", year: 2024, month: "07" },
-  { grade: "고3", year: 2024, month: "09" },
-  { grade: "고3", year: 2024, month: "10" },
-  { grade: "고3", year: 2024, month: "수능" },
-
-  { grade: "고3", year: 2025, month: "03" },
-  { grade: "고3", year: 2025, month: "05" },
-  { grade: "고3", year: 2025, month: "06" },
-  { grade: "고3", year: 2025, month: "07" },
-  { grade: "고3", year: 2025, month: "09" },
-  { grade: "고3", year: 2025, month: "10" },
-  { grade: "고3", year: 2025, month: "수능" },
-
-  { grade: "고3", year: 2026, month: "03" },
-  { grade: "고3", year: 2026, month: "05" },
-  { grade: "고3", year: 2026, month: "06" },
-
-];
+async function loadManifest(){
+  try{
+    const res = await fetch('manifest.json');
+    if(!res.ok) throw new Error('manifest.json ' + res.status);
+    DATA = await res.json();
+  } catch(err){
+    console.error('manifest.json을 불러오지 못했어요:', err);
+    DATA = [];
+  }
+}
 
 function pdfPath(grade, year, month, type){
   return `files/${grade}/${year}/${month}_${type}.pdf`;
@@ -610,12 +472,13 @@ function fillSelect(sel, items, placeholder){
   sel.disabled = items.length === 0;
 }
 
-function init(){
+async function init(){
+  gradeSel.disabled = true;
+  gradeSel.innerHTML = '<option value="">불러오는 중...</option>';
+  await loadManifest();
+
   fillSelect(gradeSel, GRADES, '선택하세요');
   document.getElementById('totalCount').textContent = DATA.length;
-  GRADES.forEach(g=>{
-    // no-op, just keeping structure obvious
-  });
   updateGradeCounts();
   resetDown('year');
   resetDown('month');
@@ -701,52 +564,23 @@ monthSel.addEventListener('change', ()=>{
 init();
 
 /* ============================================================
-   Gemini OCR + DB 매칭
-   - Gemini Vision으로 텍스트 추출 (OCR 전용)
+   OCR + DB 매칭
+   - 이미지를 OCR_PROXY_URL(서버리스 프록시)로 보내 텍스트만 추출.
+     Gemini API 키는 프록시 서버(Cloudflare Worker)에만 저장되고
+     이 페이지에는 절대 노출되지 않음. 배포 방법은 worker/ 폴더와
+     README.md 참고.
    - 추출된 텍스트를 로컬 db.json과 매칭
-   - API 키는 localStorage에 저장 (GitHub에 올라가지 않음)
    ============================================================ */
+const OCR_PROXY_URL = "https://examarchive-ocr-proxy.danny010712.workers.dev";
+
 let selectedImageFile = null;
 let examDB = null;
-let geminiApiKey = '';
 
 // db.json 미리 로드
 fetch('db.json')
   .then(r => r.json())
   .then(data => { examDB = data; })
   .catch(() => { examDB = null; });
-
-// API 키 자동 로드
-(function loadSavedKey(){
-  const saved = localStorage.getItem('gemini_api_key');
-  if(!saved) return;
-  geminiApiKey = saved;
-  document.getElementById('apiKeyInput').value = saved;
-  document.getElementById('apiSaveBtn').textContent = '✓ 저장됨';
-  document.getElementById('apiSaveBtn').classList.add('ok');
-  document.getElementById('apiStatusLabel').textContent = '저장됨';
-})();
-
-function saveApiKey(){
-  const val = document.getElementById('apiKeyInput').value.trim();
-  if(!val) return;
-  geminiApiKey = val;
-  localStorage.setItem('gemini_api_key', val);
-  document.getElementById('apiSaveBtn').textContent = '✓ 저장됨';
-  document.getElementById('apiSaveBtn').classList.add('ok');
-  document.getElementById('apiStatusLabel').textContent = '저장됨';
-  setStatus('API 키가 저장됐어요. 다음부터 자동으로 불러와요.', 'ok');
-}
-
-function deleteApiKey(){
-  geminiApiKey = '';
-  localStorage.removeItem('gemini_api_key');
-  document.getElementById('apiKeyInput').value = '';
-  document.getElementById('apiSaveBtn').textContent = '저장';
-  document.getElementById('apiSaveBtn').classList.remove('ok');
-  document.getElementById('apiStatusLabel').textContent = '미입력';
-  setStatus('API 키가 삭제됐어요.', 'err');
-}
 
 function onImageSelected(e){
   const file = e.target.files[0];
@@ -844,35 +678,22 @@ function topMatches(queryText, n=3){
   return scores.sort((a,b)=>b.score-a.score).slice(0,n);
 }
 
-// Gemini로 이미지에서 텍스트만 추출
+// 서버리스 프록시로 이미지를 보내 텍스트만 추출 (Gemini API 키는 서버에만 존재)
 async function extractTextWithGemini(file){
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = async ev => {
       const b64 = ev.target.result.split(',')[1];
       const mime = file.type || 'image/jpeg';
-      const prompt = `이 이미지에서 보이는 모든 텍스트를 그대로 추출해줘. 
-수식, 숫자, 한글, 영어 모두 포함해서 이미지에 있는 텍스트를 빠짐없이 출력해줘.
-설명이나 주석 없이 추출된 텍스트만 출력해줘.`;
       try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiApiKey}`,
-          {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({
-              contents:[{parts:[
-                {inline_data:{mime_type: mime, data: b64}},
-                {text: prompt}
-              ]}],
-              generationConfig:{temperature:0, maxOutputTokens:1024}
-            })
-          }
-        );
+        const res = await fetch(OCR_PROXY_URL, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ image: b64, mimeType: mime })
+        });
         const data = await res.json();
-        if(data.error) { reject(new Error(data.error.message)); return; }
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        resolve(text);
+        if(!res.ok || data.error) { reject(new Error(data.error || `프록시 오류 ${res.status}`)); return; }
+        resolve(data.text || '');
       } catch(err){ reject(err); }
     };
     reader.readAsDataURL(file);
@@ -880,9 +701,6 @@ async function extractTextWithGemini(file){
 }
 
 async function runScan(){
-  if(!geminiApiKey){
-    setStatus('먼저 Gemini API 키를 입력하고 저장해주세요.', 'err'); return;
-  }
   if(!selectedImageFile){
     setStatus('사진을 먼저 선택해주세요.', 'err'); return;
   }
@@ -892,7 +710,7 @@ async function runScan(){
   btn.textContent = '텍스트 추출 중...';
   hideOcrBox();
   document.getElementById('matchCard').classList.remove('show');
-  setStatus('Gemini가 텍스트를 추출하고 있어요...');
+  setStatus('텍스트를 추출하고 있어요...');
 
   try {
     const text = await extractTextWithGemini(selectedImageFile);

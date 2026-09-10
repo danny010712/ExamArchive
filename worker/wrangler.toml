@@ -1,0 +1,10 @@
+name = "examarchive-ocr-proxy"
+main = "ocr-proxy.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+ALLOWED_ORIGIN = "https://danny010712.github.io"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
+
+# GEMINI_API_KEY는 여기에 쓰지 말고 아래 명령으로 secret으로 등록하세요:
+#   wrangler secret put GEMINI_API_KEY
