@@ -162,6 +162,11 @@
     line-height:1.7;
   }
   footer b{color:var(--navy);}
+  .feedback-link{
+    display:inline-block;margin-top:8px;color:var(--amber);
+    text-decoration:none;font-weight:600;border-bottom:1px solid var(--amber-dim);
+  }
+  .feedback-link:hover{color:var(--navy);border-color:var(--navy);}
 
   .cam-area{
     border:2px dashed var(--line);border-radius:12px;
@@ -354,7 +359,8 @@
 
   <footer>
     저장된 회차: <b id="totalCount">0</b>개 · 마지막 갱신 시 이 줄은 무시하셔도 됩니다<br>
-    파일 추가 방법은 함께 받은 안내문을 참고하세요.
+    파일 추가 방법은 함께 받은 안내문을 참고하세요.<br>
+    <a href="https://docs.google.com/forms/d/e/1FAIpQLScyx-PzIymg_8G9r5IsVUG2HIT3EWj8EPFefCQmsC2pBRZ8Jw/viewform" target="_blank" rel="noopener" class="feedback-link">피드백 남기기</a>
   </footer>
 
 </div>
