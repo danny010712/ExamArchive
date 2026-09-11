@@ -350,7 +350,13 @@ def find_problem_rects(pdf_path):
                 coarse_bottom = col[i + 1]["y0"] - pad if i + 1 < len(col) else bottom_bound
                 band_h = max(1.0, coarse_bottom - y_top)
 
-                tight_bottom = y_top
+                # 이 문제 영역(x_left~x_right, y_top~coarse_bottom) 안의 콘텐츠 박스를
+                # 위에서 아래로 훑으면서, 문제 본문과 큰 간격(GAP_THRESHOLD)을 두고
+                # 뚝 떨어진 콘텐츠(페이지 하단 쪽수/저작권 표기 등 30번처럼 컬럼의
+                # 마지막 문제일 때 특히 자주 걸림)는 무시한다. 단순히 영역 안 최댓값을
+                # 쓰면 이런 아티팩트까지 포함돼 아래 여백이 커지는 문제가 있었음.
+                GAP_THRESHOLD = 45
+                boxes_in_region = []
                 for bx0, by0, bx1, by1 in content_boxes:
                     if bx1 <= x_left or bx0 >= x_right:
                         continue
@@ -358,6 +364,13 @@ def find_problem_rects(pdf_path):
                         continue
                     if (by1 - by0) > 0.8 * band_h:
                         continue  # 세로 구분선 등 컬럼 전체 높이짜리 아티팩트 제외
+                    boxes_in_region.append((by0, by1))
+                boxes_in_region.sort(key=lambda b: b[0])
+
+                tight_bottom = y_top
+                for by0, by1 in boxes_in_region:
+                    if by0 - tight_bottom > GAP_THRESHOLD and tight_bottom > y_top:
+                        break  # 실제 내용과 크게 떨어진 콘텐츠는 여기서 끊는다
                     tight_bottom = max(tight_bottom, by1)
 
                 y_bottom = min(coarse_bottom, tight_bottom + 12)

@@ -272,6 +272,7 @@
     <p class="eyebrow">Personal Archive</p>
     <h1>기출문제 보관함</h1>
     <p class="sub">학년 · 연도 · 월을 고르면 저장된 문제·해설을 엽니다.</p>
+    <p class="sub" id="yearRangeInfo"></p>
   </header>
 
   <div class="panel">
@@ -485,9 +486,20 @@ async function init(){
   fillSelect(gradeSel, GRADES, '선택하세요');
   document.getElementById('totalCount').textContent = DATA.length;
   updateGradeCounts();
+  showYearRanges();
   resetDown('year');
   resetDown('month');
   clearResult();
+}
+
+function showYearRanges(){
+  const parts = GRADES.map(g=>{
+    const years = DATA.filter(d=>d.grade===g).map(d=>d.year);
+    if(!years.length) return null;
+    const min = Math.min(...years), max = Math.max(...years);
+    return `${g} ${min}~${max}년`;
+  }).filter(Boolean);
+  document.getElementById('yearRangeInfo').textContent = parts.join(' · ');
 }
 
 function updateGradeCounts(){
@@ -729,9 +741,10 @@ function topMatches(queryText, n=3){
   for(const entry of examDB){
     for(const prob of (entry.problems||[])){
       const s = similarity(q, prob.text);
-      if(s > 0.15) scores.push({entry, prob, score: s});
+      scores.push({entry, prob, score: s});
     }
   }
+  // 점수 문턱값 없이 항상 상위 n개를 반환 (모든 경우에 동일한 개수로 추천).
   return scores.sort((a,b)=>b.score-a.score).slice(0,n);
 }
 
@@ -782,28 +795,41 @@ async function runScan(){
 
     setStatus('DB와 매칭 중...');
 
-    // 우선순위 1: 시험 정보 직접 파싱
-    const info = parseExamInfo(text);
-    const direct = info.grade && info.year && info.month
-      ? DATA.find(d=>d.grade===info.grade && String(d.year)===String(info.year) && d.month===info.month)
-      : null;
-
-    if(direct){
-      await applyMatch(direct, info.number,
-        `✓ ${info.grade} ${info.year}년 ${info.month==='수능'?'수능':parseInt(info.month)+'월'} 직접 인식 완료!`);
-      btn.disabled=false; btn.textContent='다시 인식'; return;
-    }
-
-    // 우선순위 2: DB 유사도 매칭
     if(!examDB){
       setStatus('db.json을 불러오지 못했어요.', 'err');
       btn.disabled=false; btn.textContent='다시 인식'; return;
     }
 
-    const top = topMatches(text);
-    if(top.length===0){
-      setStatus('유사한 문제를 찾지 못했어요. 하단 키워드 검색을 이용해보세요.', 'err');
-      btn.disabled=false; btn.textContent='다시 인식'; return;
+    // 항상 유사도 상위 3개를 보여준다. 학년/연도/월이 텍스트에서 직접 읽히면
+    // (예: "2024년 고1 3월") 해당 회차의 문제를 1순위로 끌어올리되, 나머지
+    // 후보도 함께 보여줘서 "직접 인식 시 1개만 뜨는" 문제를 없앤다.
+    const info = parseExamInfo(text);
+    const directEntry = info.grade && info.year && info.month
+      ? examDB.find(e=>e.grade===info.grade && String(e.year)===String(info.year) && e.month===info.month)
+      : null;
+
+    let top = topMatches(text);
+
+    if(directEntry){
+      let directProb = info.number
+        ? (directEntry.problems||[]).find(p=>p.number===info.number)
+        : null;
+      if(!directProb){
+        // 문제 번호까지는 못 읽었지만 회차는 정확히 인식된 경우,
+        // 그 회차 안에서 텍스트가 가장 비슷한 문제를 고른다.
+        const q = text.slice(0, 1000);
+        let best = null, bestScore = -1;
+        (directEntry.problems||[]).forEach(p=>{
+          const s = similarity(q, p.text);
+          if(s > bestScore){ bestScore = s; best = p; }
+        });
+        directProb = best;
+      }
+      if(directProb){
+        top = top.filter(t => !(t.entry === directEntry && t.prob === directProb));
+        top.unshift({ entry: directEntry, prob: directProb, score: 1 });
+        top = top.slice(0, 3);
+      }
     }
 
     showMatchCard(top, 'matchCard');
@@ -879,11 +905,7 @@ function runKeywordSearch(){
   const resultEl = document.getElementById('kwResult');
   if(!kw){ resultEl.innerHTML='키워드를 입력해주세요.'; resultEl.classList.add('show'); return; }
   if(!examDB){ resultEl.innerHTML='db.json을 불러오지 못했어요.'; resultEl.classList.add('show'); return; }
-  const top = topMatches(kw, 5);
-  if(top.length===0){
-    resultEl.innerHTML='<div style="color:#c0392b;font-size:12px;">일치하는 문제를 찾지 못했어요. 다른 키워드를 시도해보세요.</div>';
-    resultEl.classList.add('show'); return;
-  }
+  const top = topMatches(kw, 3);
   showMatchCard(top, 'kwResult');
 }
 
