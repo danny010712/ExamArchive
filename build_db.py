@@ -62,6 +62,13 @@ import hashlib
 import argparse
 import urllib.request
 import urllib.error
+from collections import defaultdict, deque
+
+# Windows 콘솔(cp949 등)에서 이모지 출력 시 UnicodeEncodeError로 죽는 것을 방지.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except AttributeError:
+    pass
 
 import fitz  # pymupdf
 
@@ -244,6 +251,128 @@ def split_problems(text):
     return problems
 
 
+def find_vertical_dividers(page):
+    """
+    페이지에 그려진 세로 구분선(2단 편집의 컬럼 경계선)을 찾는다.
+    페이지 높이의 60% 이상을 가로지르는 얇은 수직 요소만 인정해서 표/그래프
+    테두리 같은 짧은 선은 걸러낸다. 구분선은 "l"(선) 또는 아주 얇은 "re"
+    (채워진 사각형)로 그려질 수 있어 둘 다 검사한다.
+    """
+    h = page.rect.height
+    dividers = []
+    for d in page.get_drawings():
+        for item in d["items"]:
+            if item[0] == "l":
+                p1, p2 = item[1], item[2]
+                if abs(p1.x - p2.x) < 1.0 and abs(p1.y - p2.y) > 0.6 * h:
+                    x = (p1.x + p2.x) / 2
+                    y0, y1 = sorted([p1.y, p2.y])
+                    dividers.append((x, y0, y1))
+            elif item[0] == "re":
+                r = item[1]
+                width, height = r.x1 - r.x0, r.y1 - r.y0
+                if width < 2.0 and height > 0.6 * h:
+                    x = (r.x0 + r.x1) / 2
+                    dividers.append((x, r.y0, r.y1))
+    dividers.sort(key=lambda d: d[0])
+    return dividers
+
+
+def find_problem_rects(pdf_path):
+    """
+    PDF의 텍스트 레이어에서 한글은 깨져도 "1." "2." 같은 문제 번호(숫자+마침표)와
+    그 좌표는 멀쩡하게 남아있다. 이를 이용해 각 문제가 차지하는 영역(페이지 번호 +
+    사각형 좌표)을 찾아낸다. OCR 없이 PyMuPDF만으로 동작하므로 빠르고 API 호출이
+    필요 없다.
+    """
+    doc = fitz.open(pdf_path)
+    results = []
+    marker_re = re.compile(r"^\d{1,2}\.$")
+
+    for page_index, page in enumerate(doc):
+        words = page.get_text("words")
+        pr = page.rect
+        dividers = find_vertical_dividers(page)
+
+        # 콘텐츠(텍스트/도형/이미지) 바운딩박스: 다음 문제 시작 전까지의 "안전한"
+        # 영역 안에서 실제로 내용이 차지하는 만큼만 잘라내기 위한 타이트닝용.
+        content_boxes = [(w[0], w[1], w[2], w[3]) for w in words]
+        for d in page.get_drawings():
+            r = d.get("rect")
+            if r is not None:
+                content_boxes.append((r.x0, r.y0, r.x1, r.y1))
+        for img in page.get_image_info():
+            b = img.get("bbox")
+            if b:
+                content_boxes.append((b[0], b[1], b[2], b[3]))
+
+        markers = []
+        for w in words:
+            x0, y0, x1, y1, text = w[0], w[1], w[2], w[3], w[4]
+            if marker_re.match(text):
+                num = int(text[:-1])
+                if 1 <= num <= 30:
+                    markers.append({"num": num, "x0": x0, "y0": y0})
+
+        if not markers:
+            continue
+
+        if dividers:
+            top_bound = min(d[1] for d in dividers)
+            bottom_bound = max(d[2] for d in dividers)
+            band_edges = [pr.x0] + [d[0] for d in dividers] + [pr.x1]
+        else:
+            top_bound = pr.y0
+            bottom_bound = pr.height - 30
+            band_edges = [pr.x0, pr.x1]
+
+        def band_of(x0):
+            for i in range(len(band_edges) - 1):
+                if band_edges[i] <= x0 < band_edges[i + 1]:
+                    return i
+            return len(band_edges) - 2
+
+        bands = {}
+        for m in markers:
+            bi = band_of(m["x0"])
+            bands.setdefault(bi, []).append(m)
+
+        pad = 6
+        for bi in sorted(bands.keys()):
+            col = sorted(bands[bi], key=lambda m: m["y0"])
+            x_left = band_edges[bi] + pad
+            x_right = band_edges[bi + 1] - pad
+            for i, m in enumerate(col):
+                y_top = max(top_bound, m["y0"] - pad)
+                # coarse_bottom: 다음 문제 시작 전(또는 컬럼 끝)까지의 "안전한" 하한선.
+                # 실제 내용은 보통 이보다 훨씬 위에서 끝나므로, 아래에서 콘텐츠
+                # 바운딩박스로 다시 타이트하게 줄인다.
+                coarse_bottom = col[i + 1]["y0"] - pad if i + 1 < len(col) else bottom_bound
+                band_h = max(1.0, coarse_bottom - y_top)
+
+                tight_bottom = y_top
+                for bx0, by0, bx1, by1 in content_boxes:
+                    if bx1 <= x_left or bx0 >= x_right:
+                        continue
+                    if by0 < y_top - 2 or by0 > coarse_bottom:
+                        continue
+                    if (by1 - by0) > 0.8 * band_h:
+                        continue  # 세로 구분선 등 컬럼 전체 높이짜리 아티팩트 제외
+                    tight_bottom = max(tight_bottom, by1)
+
+                y_bottom = min(coarse_bottom, tight_bottom + 12)
+                y_bottom = max(y_bottom, y_top + 20)  # 최소 높이 안전장치
+
+                results.append({
+                    "number": m["num"],
+                    "page": page_index,
+                    "rect": [round(x_left, 1), round(y_top, 1), round(x_right, 1), round(y_bottom, 1)],
+                })
+
+    doc.close()
+    return results
+
+
 def parse_path(filename):
     """
     파일명에서 month와 타입(문제/해설/가형/나형 등)을 파싱.
@@ -363,10 +492,25 @@ def main():
                 elif "나형" in doc_type:
                     prefix = "[나형] "
 
+                # 문제 번호(크롭 좌표)는 OCR 텍스트가 아니라 PDF 자체의 위치 정보에서
+                # 뽑으므로 API 호출 없이 빠르게 계산된다. Gemini는 페이지를 항상
+                # "왼쪽 컬럼 전체 → 오른쪽 컬럼" 순서로 읽지 않아서(가로 줄 단위로 읽을
+                # 때가 있음) 순서가 아니라 문제 번호 값으로 매칭한다. 수능처럼 같은
+                # 번호가 여러 번(확통/미적/기하 등) 나오는 경우 페이지 등장 순서를
+                # 그대로 큐로 소비해 매칭한다.
+                rect_queues = defaultdict(deque)
+                for r in find_problem_rects(pdf_path):
+                    rect_queues[r["number"]].append(r)
+
                 for p in problems:
-                    month_data[month]["problems"].append(
-                        {"number": p["number"], "text": prefix + p["text"]}
-                    )
+                    entry = {"number": p["number"], "text": prefix + p["text"]}
+                    q = rect_queues.get(p["number"])
+                    if q:
+                        r = q.popleft()
+                        entry["page"] = r["page"]
+                        entry["rect"] = r["rect"]
+                        entry["docType"] = doc_type
+                    month_data[month]["problems"].append(entry)
 
             for entry in month_data.values():
                 db.append(entry)

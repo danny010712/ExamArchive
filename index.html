@@ -234,6 +234,10 @@
   .match-item .mi-label{font-weight:700;color:var(--navy);font-size:13px;}
   .match-item .mi-score{font-family:var(--mono);font-size:10px;color:var(--ink-dim);}
   .match-item .mi-preview{color:var(--ink-dim);font-size:11px;margin-top:2px;}
+  .match-item .mi-crop{
+    display:block;width:100%;max-height:180px;object-fit:contain;
+    margin-top:6px;border:1px solid var(--line);border-radius:6px;background:#fff;
+  }
   .mi-pdf-btn{
     flex:1;display:inline-block;padding:6px 10px;border-radius:7px;
     font-size:12px;font-weight:600;text-decoration:none;text-align:center;
@@ -354,6 +358,7 @@
 
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 /* ============================================================
    폴더 구조: files / 학년 / 연도 / 월_문제.pdf, 월_해설.pdf
@@ -582,6 +587,58 @@ fetch('db.json')
   .then(data => { examDB = data; })
   .catch(() => { examDB = null; });
 
+/* ============================================================
+   문제 영역 크롭 미리보기 (pdf.js)
+   - db.json의 problems[].{page, rect, docType}은 build_db.py가 PDF의
+     텍스트 레이어 위치 정보(숫자·마침표는 안 깨짐)로 미리 계산해 둔
+     "문제가 차지하는 영역" 좌표(PDF 포인트, 좌상단 원점 기준).
+   - 이미지를 미리 만들어 저장하지 않고, 사진 인식 결과를 보여줄 때마다
+     브라우저에서 그 페이지만 렌더링해서 필요한 영역만 캔버스에 그림.
+   ============================================================ */
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const pdfDocCache = {};
+function loadPdfDoc(path){
+  if(!pdfDocCache[path]){
+    pdfDocCache[path] = pdfjsLib.getDocument(path).promise
+      .catch(err => { delete pdfDocCache[path]; throw err; });
+  }
+  return pdfDocCache[path];
+}
+
+// entry+prob에 해당하는 문제 PDF 경로 (가형/나형은 prob.docType으로 구분)
+function problemPdfPath(entry, prob){
+  const docType = prob.docType || (entry.track === 'gana' ? null : '문제');
+  if(!docType) return null;
+  return pdfPath(entry.grade, entry.year, entry.month, docType);
+}
+
+async function renderProblemCrop(entry, prob, canvasEl){
+  if(prob.page == null || !prob.rect) return false;
+  const path = problemPdfPath(entry, prob);
+  if(!path) return false;
+
+  const pdf = await loadPdfDoc(path);
+  const page = await pdf.getPage(prob.page + 1); // pdf.js는 1-based 페이지 번호
+  const scale = 2;
+  const viewport = page.getViewport({ scale });
+
+  const [x0, y0, x1, y1] = prob.rect;
+  const sx = x0 * scale, sy = y0 * scale;
+  const cw = Math.max(1, Math.round((x1 - x0) * scale));
+  const ch = Math.max(1, Math.round((y1 - y0) * scale));
+
+  canvasEl.width = cw;
+  canvasEl.height = ch;
+  await page.render({
+    canvasContext: canvasEl.getContext('2d'),
+    viewport,
+    transform: [1, 0, 0, 1, -sx, -sy], // 필요한 영역만 캔버스 원점으로 이동
+  }).promise;
+  return true;
+}
+
 function onImageSelected(e){
   const file = e.target.files[0];
   if(!file) return;
@@ -774,17 +831,31 @@ function showMatchCard(top, cardId){
            <a href="${pdfPath(entry.grade,entry.year,entry.month,'문제')}" target="_blank" rel="noopener" class="mi-pdf-btn" onclick="event.stopPropagation()">문제 PDF</a>
            <a href="${pdfPath(entry.grade,entry.year,entry.month,'해설')}" target="_blank" rel="noopener" class="mi-pdf-btn mi-pdf-btn-sol" onclick="event.stopPropagation()">해설 PDF</a>
          </div>`;
+    const hasCrop = prob.page != null && prob.rect && problemPdfPath(entry, prob);
     const div = document.createElement('div');
     div.className = 'match-item';
     div.innerHTML = `
       <div class="mi-label">${entry.grade} · ${entry.year}년 ${ml}${prob.number?' '+prob.number+'번':''}</div>
       <div class="mi-score">유사도 ${Math.round(score*100)}%</div>
-      <div class="mi-preview">${prob.text.slice(0,80).replace(/\n/g,' ')}...</div>
+      ${hasCrop
+        ? `<canvas class="mi-crop"></canvas>`
+        : `<div class="mi-preview">${prob.text.slice(0,80).replace(/\n/g,' ')}...</div>`}
       ${pdfBtns}
     `;
     div.onclick = ()=>applyMatch(entry, prob.number,
       `✓ ${entry.grade} ${entry.year}년 ${ml}${prob.number?' '+prob.number+'번':''} 선택됨`);
     card.appendChild(div);
+
+    if(hasCrop){
+      const canvasEl = div.querySelector('.mi-crop');
+      renderProblemCrop(entry, prob, canvasEl).catch(()=>{
+        // 렌더링 실패 시 텍스트 미리보기로 대체
+        const fallback = document.createElement('div');
+        fallback.className = 'mi-preview';
+        fallback.textContent = prob.text.slice(0,80).replace(/\n/g,' ') + '...';
+        canvasEl.replaceWith(fallback);
+      });
+    }
   });
   card.classList.add('show');
 }
