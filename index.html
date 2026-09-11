@@ -801,8 +801,13 @@ async function runScan(){
     }
 
     // 항상 유사도 상위 3개를 보여준다. 학년/연도/월이 텍스트에서 직접 읽히면
-    // (예: "2024년 고1 3월") 해당 회차의 문제를 1순위로 끌어올리되, 나머지
-    // 후보도 함께 보여줘서 "직접 인식 시 1개만 뜨는" 문제를 없앤다.
+    // (예: "2024년 고1 3월") 해당 회차 안에서 후보를 하나 골라 "경쟁"에 끼워
+    // 넣긴 하지만, 점수는 다른 후보와 똑같이 실제 텍스트 유사도로 매긴다.
+    // parseExamInfo는 사진 속 숫자를 오인식할 수 있어서(예: 문제 본문에
+    // 우연히 들어간 4자리 숫자를 연도로 착각), 무조건 1순위/100%로 표시하면
+    // 완전히 다른 문제를 확신하는 것처럼 보이는 문제가 있었음 — 실제 유사도로
+    // 점수를 매기면 오인식된 후보는 자연히 낮은 점수로 밀려나거나 3위 안에도
+    // 못 들게 된다.
     const info = parseExamInfo(text);
     const directEntry = info.grade && info.year && info.month
       ? examDB.find(e=>e.grade===info.grade && String(e.year)===String(info.year) && e.month===info.month)
@@ -811,13 +816,13 @@ async function runScan(){
     let top = topMatches(text);
 
     if(directEntry){
+      const q = text.slice(0, 1000);
       let directProb = info.number
         ? (directEntry.problems||[]).find(p=>p.number===info.number)
         : null;
       if(!directProb){
-        // 문제 번호까지는 못 읽었지만 회차는 정확히 인식된 경우,
+        // 문제 번호까지는 못 읽었지만 회차는 인식된 경우,
         // 그 회차 안에서 텍스트가 가장 비슷한 문제를 고른다.
-        const q = text.slice(0, 1000);
         let best = null, bestScore = -1;
         (directEntry.problems||[]).forEach(p=>{
           const s = similarity(q, p.text);
@@ -825,9 +830,11 @@ async function runScan(){
         });
         directProb = best;
       }
-      if(directProb){
-        top = top.filter(t => !(t.entry === directEntry && t.prob === directProb));
-        top.unshift({ entry: directEntry, prob: directProb, score: 1 });
+      const alreadyIn = directProb && top.some(t => t.entry === directEntry && t.prob === directProb);
+      if(directProb && !alreadyIn){
+        const directScore = similarity(q, directProb.text);
+        top.push({ entry: directEntry, prob: directProb, score: directScore });
+        top.sort((a,b)=>b.score-a.score);
         top = top.slice(0, 3);
       }
     }
