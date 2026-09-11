@@ -27,6 +27,46 @@ function jsonResponse(obj, status, env) {
   });
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Gemini가 429(레이트리밋)나 503(모델 과부하)을 반환하면 대부분 몇 초 안에
+// 풀리는 일시적 현상이므로, 학생에게 바로 에러를 보여주기 전에 짧게 재시도한다.
+async function callGeminiWithRetry(upstreamUrl, payload, retries = 3) {
+  let lastMessage = "알 수 없는 오류";
+  for (let attempt = 0; attempt < retries; attempt++) {
+    let upstream;
+    try {
+      upstream = await fetch(upstreamUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      });
+    } catch (err) {
+      lastMessage = "Gemini 호출 실패: " + err.message;
+      if (attempt < retries - 1) {
+        await sleep(500 * 2 ** attempt);
+        continue;
+      }
+      return { ok: false, message: lastMessage };
+    }
+
+    const data = await upstream.json();
+    if (!upstream.ok || data.error) {
+      lastMessage = data.error?.message || `HTTP ${upstream.status}`;
+      const retryable = upstream.status === 429 || upstream.status >= 500;
+      if (retryable && attempt < retries - 1) {
+        await sleep(500 * 2 ** attempt);
+        continue;
+      }
+      return { ok: false, message: lastMessage };
+    }
+    return { ok: true, data };
+  }
+  return { ok: false, message: lastMessage };
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -56,32 +96,23 @@ export default {
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent` +
       `?key=${env.GEMINI_API_KEY}`;
 
-    let upstream;
-    try {
-      upstream = await fetch(upstreamUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { inline_data: { mime_type: mimeType, data: image } },
-                { text: OCR_PROMPT },
-              ],
-            },
+    const payload = JSON.stringify({
+      contents: [
+        {
+          parts: [
+            { inline_data: { mime_type: mimeType, data: image } },
+            { text: OCR_PROMPT },
           ],
-          generationConfig: { temperature: 0, maxOutputTokens: 1024 },
-        }),
-      });
-    } catch (err) {
-      return jsonResponse({ error: "Gemini 호출 실패: " + err.message }, 502, env);
-    }
+        },
+      ],
+      generationConfig: { temperature: 0, maxOutputTokens: 1024 },
+    });
 
-    const data = await upstream.json();
-    if (data.error) {
-      return jsonResponse({ error: data.error.message }, 502, env);
+    const result = await callGeminiWithRetry(upstreamUrl, payload);
+    if (!result.ok) {
+      return jsonResponse({ error: result.message }, 502, env);
     }
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const text = result.data.candidates?.[0]?.content?.parts?.[0]?.text || "";
     return jsonResponse({ text }, 200, env);
   },
 };
