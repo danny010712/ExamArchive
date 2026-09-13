@@ -77,11 +77,13 @@ FILES_DIR = "files"
 DB_OUTPUT = "db.json"
 MANIFEST_OUTPUT = "manifest.json"
 CACHE_DIR = "ocr_cache"
+TAG_CACHE_DIR = "tag_cache"
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 # 무료 티어는 대략 분당 10~15회, 일 1,000~1,500회 한도라 여유를 두고 6.5초로 설정
 # (분당 약 9회). --delay로 조절 가능.
 DEFAULT_DELAY = 6.5
 RENDER_ZOOM = 2.2  # 페이지 렌더링 배율 (해상도가 높을수록 OCR 품질↑, 속도↓)
+TAG_BATCH_SIZE = 10  # 단원/개념 태깅 시 한 번의 Gemini 호출에 묶을 문제 수
 # ────────────────────────────────────────────────────────
 
 OCR_PROMPT = """이 이미지는 한국 수학 시험지의 한 페이지입니다.
@@ -94,6 +96,27 @@ OCR_PROMPT = """이 이미지는 한국 수학 시험지의 한 페이지입니�
 - 표/그래프의 설명이 필요하면 보이는 숫자·글자만 옮기고 그림 자체를
   묘사하지는 마.
 - 설명, 주석, 마크다운 없이 추출된 텍스트만 출력해줘."""
+
+# 문제 번호가 일치하는 DB 문제가 없을 때 "단원/개념이 비슷한 문제"를 추천하기
+# 위한 태깅 프롬프트. index.html/worker에서 사진 속 문제 하나를 태깅할 때도
+# 같은 지침 문구를 써야 두 쪽의 키워드 어휘가 서로 맞아떨어진다(예: 둘 다
+# "이차함수"라고 부르지, 한쪽만 "이차식"이라고 부르면 매칭이 안 됨).
+TAG_INSTRUCTION = (
+    "이 문제가 다루는 핵심 단원/개념을 2~4개의 한글 키워드로 뽑아줘. "
+    "가능하면 한국 고등학교 수학 교육과정에서 쓰는 표준 단원/개념명을 사용해줘 "
+    "(예: 이차함수, 삼각함수의 그래프, 수열의 합, 미분계수, 도함수의 활용, "
+    "확률의 덧셈정리, 지수함수와 로그함수, 도형의 방정식, 경우의 수 등)."
+)
+
+TAG_BATCH_HEADER = f"""아래는 한국 고등학교 수학 시험 문제 여러 개입니다. 각 문제 앞에는
+[라벨 N] 형식의 식별표가 붙어 있어. 각 문제마다 {TAG_INSTRUCTION}
+
+반드시 아래 형식으로, 문제 개수만큼 한 줄씩만 출력해줘. N은 문제 자체에 적힌 번호가
+아니라 [라벨 N]에 적힌 값을 그대로 써야 해. 다른 설명은 절대 넣지 마:
+N|키워드1,키워드2,키워드3
+
+문제들:
+"""
 
 
 class DailyQuotaExceeded(Exception):
@@ -131,23 +154,17 @@ def _parse_error_body(body):
     return message, retry_delay, is_daily, quota_ids
 
 
-def call_gemini_ocr(image_bytes, api_key, model, retries=5):
-    b64 = base64.b64encode(image_bytes).decode("ascii")
+def _call_gemini(parts, api_key, model, retries=5, max_output_tokens=4096):
+    """parts(콘텐츠 파트 리스트)를 Gemini generateContent에 보내고 첫 후보의 텍스트를
+    반환한다. 429(레이트리밋/일일한도)·5xx 재시도 로직은 OCR과 태깅 호출이 공유한다."""
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={api_key}"
     )
     payload = json.dumps(
         {
-            "contents": [
-                {
-                    "parts": [
-                        {"inline_data": {"mime_type": "image/png", "data": b64}},
-                        {"text": OCR_PROMPT},
-                    ]
-                }
-            ],
-            "generationConfig": {"temperature": 0, "maxOutputTokens": 4096},
+            "contents": [{"parts": parts}],
+            "generationConfig": {"temperature": 0, "maxOutputTokens": max_output_tokens},
         }
     ).encode("utf-8")
 
@@ -162,8 +179,8 @@ def call_gemini_ocr(image_bytes, api_key, model, retries=5):
                 candidates = data.get("candidates", [])
                 if not candidates:
                     return ""
-                parts = candidates[0].get("content", {}).get("parts", [])
-                return parts[0].get("text", "") if parts else ""
+                cparts = candidates[0].get("content", {}).get("parts", [])
+                return cparts[0].get("text", "") if cparts else ""
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", errors="ignore")
             message, retry_delay, is_daily, quota_ids = _parse_error_body(body)
@@ -186,6 +203,19 @@ def call_gemini_ocr(image_bytes, api_key, model, retries=5):
             print(f"    ⚠ {last_message}, {wait}초 대기 후 재시도... ({attempt + 1}/{retries})")
             time.sleep(wait)
     raise RuntimeError(f"재시도 한도를 초과했어요. 마지막 오류: {last_message}")
+
+
+def call_gemini_ocr(image_bytes, api_key, model, retries=5):
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    parts = [
+        {"inline_data": {"mime_type": "image/png", "data": b64}},
+        {"text": OCR_PROMPT},
+    ]
+    return _call_gemini(parts, api_key, model, retries=retries, max_output_tokens=4096)
+
+
+def call_gemini_text(prompt, api_key, model, retries=5):
+    return _call_gemini([{"text": prompt}], api_key, model, retries=retries, max_output_tokens=2048)
 
 
 def render_page_png(page, zoom=RENDER_ZOOM):
@@ -386,6 +416,87 @@ def find_problem_rects(pdf_path):
     return results
 
 
+def tag_cache_path(pdf_hash, index, model):
+    key = f"tags_{pdf_hash}_{index}_{model}"
+    digest = hashlib.sha256(key.encode()).hexdigest()
+    return os.path.join(TAG_CACHE_DIR, digest[:2], digest + ".json")
+
+
+def _parse_tag_batch_response(text):
+    """"라벨N|키워드1,키워드2" 형식의 응답을 {라벨N: [키워드,...]} 로 파싱.
+    Gemini가 지시한 형식을 정확히 안 지키고 "[라벨 3] 키워드..." 처럼 프롬프트의
+    [라벨 N] 표기를 그대로 따라 쓰거나, 구분자로 |/:/./) 등을 섞어 쓰는 경우가
+    있어서 최대한 관대하게 파싱한다."""
+    result = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # 선행 "[", "라벨" 같은 장식 제거: "[라벨 3]", "라벨 3", "3" 모두 허용
+        line = re.sub(r"^\[?\s*라벨\s*", "", line)
+        m = re.match(r"^\[?\s*(\d+)\s*\]?\s*[|:.\-)]?\s*(.+)$", line)
+        if not m:
+            continue
+        idx = int(m.group(1))
+        tags = [t.strip(" -") for t in re.split(r"[,，、]", m.group(2)) if t.strip(" -")]
+        if tags:
+            result[idx] = tags
+    return result
+
+
+def classify_topics(problems, pdf_hash, api_key, model, delay, force, stats, debug=False):
+    """문제별 단원/개념 키워드를 뽑아 {problems 리스트 안의 위치: [키워드,...]} 로 반환.
+    여러 문제를 TAG_BATCH_SIZE개씩 묶어 한 번의 Gemini 호출로 처리해서
+    (문제당 1회 호출이면 3512번이 되어버리므로) 호출 횟수를 크게 줄인다.
+    결과는 문제 단위로 캐싱되어, 재실행 시 이미 태깅된 문제는 다시 호출하지 않는다.
+
+    캐시/배치 프롬프트의 식별자로 "문제 번호"가 아니라 problems 리스트 안의
+    위치(인덱스)를 쓴다 — 수능처럼 확통/미적/기하 선택과목별로 같은 번호(예: 23번)가
+    한 PDF 안에 여러 번 나오는 경우, 번호로 캐시하면 서로 다른 문제끼리 같은 캐시
+    파일을 덮어써서 태그가 뒤섞이는 문제가 있었다.
+    """
+    tags_by_index = {}
+    todo = []  # (index, problem_dict, cache_path)
+
+    for idx, p in enumerate(problems):
+        cpath = tag_cache_path(pdf_hash, idx, model)
+        if not force and os.path.exists(cpath):
+            with open(cpath, "r", encoding="utf-8") as f:
+                cached = json.load(f)
+            if cached:
+                # 태깅에 성공한 것만 캐시 히트로 인정. 예전에 응답 파싱이 실패해서
+                # 빈 리스트로 저장된 것은 여기서 다시 todo에 넣어 재시도한다 —
+                # 그래야 --force 없이 재실행만 해도 실패했던 문제들이 복구된다.
+                tags_by_index[idx] = cached
+                stats["tags_cached"] += 1
+                continue
+        todo.append((idx, p, cpath))
+
+    for i in range(0, len(todo), TAG_BATCH_SIZE):
+        batch = todo[i:i + TAG_BATCH_SIZE]
+        prompt = TAG_BATCH_HEADER + "\n".join(
+            f"[라벨 {idx}]\n{p['text'][:400]}" for idx, p, _ in batch
+        )
+        text = call_gemini_text(prompt, api_key, model)
+        if debug:
+            print("    ── 태깅 응답 원문 ──")
+            print(text)
+            print("    ──────────────────")
+        parsed = _parse_tag_batch_response(text)
+        for idx, p, cpath in batch:
+            tags = parsed.get(idx, [])
+            if debug and not tags:
+                print(f"    ⚠ 라벨 {idx} 파싱 실패 (문제: {p['text'][:60]!r})")
+            os.makedirs(os.path.dirname(cpath), exist_ok=True)
+            with open(cpath, "w", encoding="utf-8") as f:
+                json.dump(tags, f, ensure_ascii=False)
+            tags_by_index[idx] = tags
+            stats["tags_new"] += 1
+        time.sleep(delay)
+
+    return tags_by_index
+
+
 def parse_path(filename):
     """
     파일명에서 month와 타입(문제/해설/가형/나형 등)을 파싱.
@@ -408,6 +519,10 @@ def main():
     ap.add_argument("--only", default=None, help="경로에 이 문자열이 포함된 PDF만 처리")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--delay", type=float, default=DEFAULT_DELAY)
+    ap.add_argument("--skip-tags", action="store_true",
+                     help="단원/개념 태깅(유사 문제 없을 때 추천용)을 건너뜀")
+    ap.add_argument("--debug-tags", action="store_true",
+                     help="태깅 응답 원문과 파싱 실패 항목을 출력 (문제 진단용)")
     args = ap.parse_args()
 
     if not os.path.isdir(FILES_DIR):
@@ -421,7 +536,8 @@ def main():
         return
 
     db = []
-    stats = {"ocr_pages": 0, "cached_pages": 0, "pdfs": 0, "problems": 0}
+    stats = {"ocr_pages": 0, "cached_pages": 0, "pdfs": 0, "problems": 0,
+              "tags_new": 0, "tags_cached": 0}
     failed_files = []
     quota_exhausted = False
 
@@ -515,7 +631,26 @@ def main():
                 for r in find_problem_rects(pdf_path):
                     rect_queues[r["number"]].append(r)
 
-                for p in problems:
+                # 단원/개념 태깅: DB에 텍스트로 매칭되는 문제가 없을 때 "비슷한
+                # 단원의 문제"를 추천하기 위한 사전 준비. 문제별로 캐싱되므로
+                # 재실행 시 이미 태깅된 문제는 API를 다시 호출하지 않는다.
+                tags_by_index = {}
+                if not args.skip_tags:
+                    try:
+                        pdf_h = file_hash(pdf_path)
+                        tags_by_index = classify_topics(
+                            problems, pdf_h, api_key, args.model, args.delay, args.force, stats,
+                            debug=args.debug_tags,
+                        )
+                    except DailyQuotaExceeded as e:
+                        print(f"    ❌ 일일 무료 할당량을 초과했어요(태깅): {e}")
+                        print("    → 지금까지 처리한 내용은 저장하고 멈춥니다. 내일 같은 명령으로 "
+                              "다시 실행하면 캐시 덕분에 이어서 처리돼요.")
+                        quota_exhausted = True
+                    except Exception as e:
+                        print(f"    ⚠ 태깅 실패(이 파일은 태그 없이 진행): {e}")
+
+                for idx, p in enumerate(problems):
                     entry = {"number": p["number"], "text": prefix + p["text"]}
                     q = rect_queues.get(p["number"])
                     if q:
@@ -523,7 +658,13 @@ def main():
                         entry["page"] = r["page"]
                         entry["rect"] = r["rect"]
                         entry["docType"] = doc_type
+                    tags = tags_by_index.get(idx)
+                    if tags:
+                        entry["tags"] = tags
                     month_data[month]["problems"].append(entry)
+
+                if quota_exhausted:
+                    break
 
             for entry in month_data.values():
                 db.append(entry)
@@ -550,6 +691,8 @@ def main():
     print(f"   문제 수         : {stats['problems']}개")
     print(f"   OCR 새로 호출   : {stats['ocr_pages']}페이지")
     print(f"   캐시 재사용     : {stats['cached_pages']}페이지")
+    print(f"   태그 새로 호출  : {stats['tags_new']}문제")
+    print(f"   태그 캐시 재사용: {stats['tags_cached']}문제")
     print(f"   회차(manifest)  : {len(manifest)}개")
     print(f"   저장 위치       : {DB_OUTPUT}, {MANIFEST_OUTPUT}")
     if failed_files:

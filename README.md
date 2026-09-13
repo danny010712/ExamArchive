@@ -11,6 +11,10 @@ Go to : https://danny010712.github.io/ExamArchive/
    ```
    → `manifest.json`(드롭다운 목록), `db.json`(문제 텍스트 DB)이 자동 생성/갱신됨.
    기존에 처리한 페이지는 `ocr_cache/`에 캐시되어 있어서 새로 추가한 파일만 OCR한다.
+   문제별 단원/개념 키워드도 함께 뽑혀서(`tag_cache/`에 캐시) `db.json`에 저장되는데,
+   이건 사진 속 문제가 DB에 표현까지 비슷한 문제가 없을 때 "단원이 비슷한 문제"를
+   대신 추천하는 데 쓰인다. 문제 20개씩 묶어서 호출하므로 전체 태깅에도 API 호출은
+   200회 안팎(최초 1회, 이후엔 캐시). 이 태깅을 건너뛰려면 `--skip-tags` 옵션 사용.
 3. `files/`, `manifest.json`, `db.json`을 함께 GitHub에 push하면 끝. index.html은 더 이상 손댈 필요 없음.
 
 ## 사진 인식(OCR) 프록시 배포 — 최초 1회만

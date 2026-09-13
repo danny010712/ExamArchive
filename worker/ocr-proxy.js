@@ -12,6 +12,17 @@ const OCR_PROMPT = `이 이미지에서 보이는 모든 텍스트를 그대로 
 수식, 숫자, 한글, 영어 모두 포함해서 이미지에 있는 텍스트를 빠짐없이 출력해줘.
 설명이나 주석 없이 추출된 텍스트만 출력해줘.`;
 
+// build_db.py의 TAG_INSTRUCTION과 문구를 맞춰야 DB에 미리 뽑아둔 키워드와
+// 여기서 사진 속 문제로 뽑는 키워드의 어휘가 서로 맞아떨어진다.
+const CLASSIFY_PROMPT_PREFIX = `이 문제가 다루는 핵심 단원/개념을 2~4개의 한글 키워드로 뽑아줘.
+가능하면 한국 고등학교 수학 교육과정에서 쓰는 표준 단원/개념명을 사용해줘
+(예: 이차함수, 삼각함수의 그래프, 수열의 합, 미분계수, 도함수의 활용,
+확률의 덧셈정리, 지수함수와 로그함수, 도형의 방정식, 경우의 수 등).
+설명 없이 키워드만, 쉼표로 구분해서 한 줄로 출력해줘.
+
+문제:
+`;
+
 function corsHeaders(env) {
   return {
     "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN || "*",
@@ -86,15 +97,35 @@ export default {
       return jsonResponse({ error: "잘못된 요청 형식이에요." }, 400, env);
     }
 
-    const { image, mimeType } = body || {};
-    if (!image || !mimeType) {
-      return jsonResponse({ error: "image, mimeType 값이 필요해요." }, 400, env);
-    }
-
     const model = env.GEMINI_MODEL || "gemini-3.5-flash-lite";
     const upstreamUrl =
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent` +
       `?key=${env.GEMINI_API_KEY}`;
+
+    if (body.mode === "classify") {
+      // DB에 텍스트로 일치하는 문제가 없을 때, 사진에서 뽑은 문제 텍스트의
+      // 단원/개념 키워드를 뽑아 db.json에 미리 저장된 키워드와 비교하기 위함.
+      const { text: problemText } = body || {};
+      if (!problemText || !problemText.trim()) {
+        return jsonResponse({ error: "text 값이 필요해요." }, 400, env);
+      }
+      const payload = JSON.stringify({
+        contents: [{ parts: [{ text: CLASSIFY_PROMPT_PREFIX + problemText.slice(0, 1500) }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 200 },
+      });
+      const result = await callGeminiWithRetry(upstreamUrl, payload);
+      if (!result.ok) {
+        return jsonResponse({ error: result.message }, 502, env);
+      }
+      const raw = result.data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const tags = raw.split(/[,\n，]/).map((t) => t.trim()).filter(Boolean);
+      return jsonResponse({ tags }, 200, env);
+    }
+
+    const { image, mimeType } = body || {};
+    if (!image || !mimeType) {
+      return jsonResponse({ error: "image, mimeType 값이 필요해요." }, 400, env);
+    }
 
     const payload = JSON.stringify({
       contents: [

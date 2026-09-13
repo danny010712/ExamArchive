@@ -755,6 +755,36 @@ function topMatches(queryText, n=3){
   return scores.sort((a,b)=>b.score-a.score).slice(0,n);
 }
 
+// 텍스트 유사도로 괜찮은 후보를 못 찾았을 때 쓰는 폴백: DB에 미리 뽑아둔
+// 단원/개념 키워드(prob.tags)와 사진 속 문제의 키워드를 비교한다. 이미
+// 검증된 similarity() 함수를 그대로 재사용 — 태그 배열을 공백으로 이어붙인
+// "개념 텍스트"끼리 비교하는 것뿐이라 새 유사도 로직이 필요 없다.
+function topMatchesByTags(queryTags, n=3){
+  if(!examDB || !queryTags || !queryTags.length) return [];
+  const q = queryTags.join(' ');
+  let scores = [];
+  for(const entry of examDB){
+    for(const prob of (entry.problems||[])){
+      if(!prob.tags || !prob.tags.length) continue;
+      const s = similarity(q, prob.tags.join(' '));
+      if(s > 0) scores.push({entry, prob, score: s});
+    }
+  }
+  return scores.sort((a,b)=>b.score-a.score).slice(0,n);
+}
+
+// 사진 속 문제 텍스트의 단원/개념 키워드를 프록시(Worker)에게 물어본다.
+async function classifyProblemTags(text){
+  const res = await fetch(OCR_PROXY_URL, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ mode: 'classify', text: text.slice(0, 1500) })
+  });
+  const data = await res.json();
+  if(!res.ok || data.error) throw new Error(data.error || `프록시 오류 ${res.status}`);
+  return data.tags || [];
+}
+
 // 서버리스 프록시로 이미지를 보내 텍스트만 추출 (Gemini API 키는 서버에만 존재)
 async function extractTextWithGemini(file){
   return new Promise((resolve, reject) => {
@@ -846,8 +876,30 @@ async function runScan(){
       }
     }
 
-    showMatchCard(top, 'matchCard');
-    setStatus(`유사한 문제 ${top.length}개를 찾았어요. 아래에서 선택해주세요.`, 'ok');
+    // 텍스트 유사도 최고점이 너무 낮으면(=DB에 표현까지 비슷한 문제가 없음)
+    // 문제를 "이해"해서 단원/개념이 비슷한 문제를 대신 추천해본다.
+    const LOW_CONFIDENCE = 0.3;
+    let conceptFallback = false;
+    if(!top.length || top[0].score < LOW_CONFIDENCE){
+      try{
+        const tags = await classifyProblemTags(text);
+        const conceptTop = topMatchesByTags(tags, 3);
+        if(conceptTop.length){
+          top = conceptTop;
+          conceptFallback = true;
+        }
+      } catch(e){
+        // 개념 기반 추천 실패는 무시하고 기존 유사도 결과를 그대로 보여준다.
+      }
+    }
+
+    showMatchCard(top, 'matchCard', conceptFallback);
+    setStatus(
+      conceptFallback
+        ? `정확히 일치하는 문제는 못 찾았지만, 비슷한 단원의 문제 ${top.length}개를 추천해요.`
+        : `유사한 문제 ${top.length}개를 찾았어요. 아래에서 선택해주세요.`,
+      'ok'
+    );
     btn.disabled=false; btn.textContent='다시 인식';
 
   } catch(err){
@@ -856,9 +908,11 @@ async function runScan(){
   }
 }
 
-function showMatchCard(top, cardId){
+function showMatchCard(top, cardId, conceptFallback=false){
   const card = document.getElementById(cardId);
-  card.innerHTML = '<b>유사 문제 후보</b>';
+  card.innerHTML = conceptFallback
+    ? '<b>비슷한 단원의 문제</b> <span style="font-weight:400;color:var(--ink-dim);">(정확히 일치하는 문제는 못 찾았어요)</span>'
+    : '<b>유사 문제 후보</b>';
   top.forEach(({entry, prob, score})=>{
     const ml = entry.month==='수능' ? '수능' : parseInt(entry.month)+'월';
     const track = entry.track || null;
@@ -876,7 +930,9 @@ function showMatchCard(top, cardId){
     div.className = 'match-item';
     div.innerHTML = `
       <div class="mi-label">${entry.grade} · ${entry.year}년 ${ml}${prob.number?' '+prob.number+'번':''}</div>
-      <div class="mi-score">유사도 ${Math.round(score*100)}%</div>
+      <div class="mi-score">${conceptFallback ? '개념 유사도' : '유사도'} ${Math.round(score*100)}%${
+        conceptFallback && prob.tags ? ' · ' + prob.tags.join(', ') : ''
+      }</div>
       ${hasCrop
         ? `<canvas class="mi-crop"></canvas>`
         : `<div class="mi-preview">${prob.text.slice(0,80).replace(/\n/g,' ')}...</div>`}
